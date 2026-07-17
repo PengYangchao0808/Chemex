@@ -8,10 +8,121 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+RunMode = Literal["auto", "semi", "agent"]
+ProducerKind = Literal["cli_model", "human", "host_agent"]
+Channel = Literal["text", "table", "structure", "adjudication"]
+
+
 class StrictModel(BaseModel):
     """Base model that rejects accidental schema drift."""
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+
+class ProducerSpec(StrictModel):
+    """Declares who fulfills one extraction channel within a run."""
+
+    kind: ProducerKind
+    model: str | None = None
+    provider: str | None = None
+
+
+class ProducerPlan(StrictModel):
+    """Declares producers for every extraction and adjudication channel."""
+
+    text: ProducerSpec
+    table: ProducerSpec
+    structure: ProducerSpec
+    adjudication: ProducerSpec
+
+    def channel(self, channel: Channel) -> ProducerSpec:
+        """Returns the producer spec configured for one channel."""
+
+        return getattr(self, channel)
+
+
+class TaskImageAsset(StrictModel):
+    """Image asset shipped with a task for visual inspection."""
+
+    path: str
+    evidence_id: str | None = None
+    context: str | None = None
+
+
+class TaskAssets(StrictModel):
+    """Inline text and image assets attached to an extraction task."""
+
+    text: str | None = None
+    images: list[TaskImageAsset] = Field(default_factory=list)
+
+
+class ExtractionTask(StrictModel):
+    """Core-generated task envelope shared across all run modes."""
+
+    task_id: str
+    kind: Channel
+    instruction_version: str
+    instructions: str = ""
+    output_schema_version: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    input_artifacts: list[str] = Field(default_factory=list)
+    assets: TaskAssets = Field(default_factory=TaskAssets)
+    status: Literal["awaiting", "fulfilled"] = "awaiting"
+
+
+class SubmissionProducer(StrictModel):
+    """Identifies an external task fulfiller submitting task outputs."""
+
+    kind: Literal["human", "host_agent"]
+    client_name: str | None = None
+    client_version: str | None = None
+
+
+class CandidateSubmission(StrictModel):
+    """Task-bounded candidate payloads awaiting Core validation and ID assignment."""
+
+    task_id: str
+    producer: SubmissionProducer
+    outputs: list[dict[str, Any]]
+
+    @field_validator("outputs")
+    @classmethod
+    def _forbid_candidate_id(cls, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        for index, item in enumerate(value):
+            if "candidate_id" in item:
+                raise ValueError(
+                    "outputs must not include candidate_id "
+                    f"(found in outputs[{index}])"
+                )
+        return value
+
+
+class AdjudicationDecision(StrictModel):
+    """External accept-or-keep-review decision for one assembled reaction."""
+
+    task_id: str
+    reaction_id: str
+    decision: Literal["accept", "keep_review"]
+    rationale: str | None = None
+    producer: SubmissionProducer
+
+
+class ProvenanceEntry(StrictModel):
+    """Stable sidecar metadata describing how one candidate was produced."""
+
+    candidate_id: str
+    task_id: str
+    channel: Channel
+    producer_kind: ProducerKind
+    provider: str | None = None
+    model: str | None = None
+    prompt_version: str | None = None
+    instruction_version: str | None = None
+    input_hash: str | None = None
+    submission_hash: str | None = None
+    client_name: str | None = None
+    client_version: str | None = None
+    created_at: str
 
 
 class RunRequest(StrictModel):
@@ -21,6 +132,7 @@ class RunRequest(StrictModel):
     output_dir: Path
     external_structures: Path | None = None
     resume: bool = False
+    mode: RunMode = "auto"
 
 
 class EvidenceRef(StrictModel):
@@ -127,7 +239,16 @@ class RunSummary(StrictModel):
     """Small, JSON-safe summary returned by the pipeline and CLI."""
 
     run_id: str
-    status: Literal["success", "completed_empty", "partial", "failed"]
+    status: Literal[
+        "running",
+        "awaiting_input",
+        "ready",
+        "success",
+        "completed_empty",
+        "partial",
+        "failed",
+        "cancelled",
+    ]
     records_count: int = Field(ge=0)
     review_count: int = Field(ge=0)
     output_dir: str

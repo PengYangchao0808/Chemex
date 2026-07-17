@@ -12,6 +12,7 @@ from typing import Any, Iterable, TypeVar
 from pydantic import BaseModel
 
 from chemex_lit.errors import ArtifactError
+from chemex_lit.models import ProvenanceEntry
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -174,6 +175,32 @@ class ArtifactStore:
             lines.append(json.dumps(data, ensure_ascii=False))
         self._atomic_write(path, "\n".join(lines) + ("\n" if lines else ""))
         return path
+
+    def append_jsonl(self, relative: str, rows: Iterable[BaseModel | dict[str, Any]]) -> Path:
+        """Appends JSONL rows by atomically rewriting old and new content together."""
+
+        path = self._path(relative)
+        lines: list[str] = []
+        if path.is_file():
+            lines.extend(path.read_text(encoding="utf-8").splitlines())
+        for row in rows:
+            data = row.model_dump(mode="json") if isinstance(row, BaseModel) else row
+            lines.append(json.dumps(data, ensure_ascii=False))
+        self._atomic_write(path, "\n".join(lines) + ("\n" if lines else ""))
+        return path
+
+    def write_provenance(self, entries: Iterable[ProvenanceEntry | dict[str, Any]]) -> Path:
+        """Writes candidate provenance sidecar entries."""
+
+        return self.write_jsonl("candidates/provenance.jsonl", entries)
+
+    def read_provenance(self) -> list[ProvenanceEntry]:
+        """Reads candidate provenance sidecar entries if present."""
+
+        path = self._path("candidates/provenance.jsonl")
+        if not path.is_file():
+            return []
+        return self.read_models("candidates/provenance.jsonl", ProvenanceEntry)
 
     def read_models(self, relative: str, model: type[T]) -> list[T]:
         path = self._path(relative)
