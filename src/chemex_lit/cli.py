@@ -142,13 +142,28 @@ def review_command(run_dir: Path) -> None:
 @main.command("review-apply")
 @click.argument("run_dir", type=click.Path(path_type=Path, exists=True, file_okay=False))
 @click.argument("corrections", type=click.Path(path_type=Path, exists=True, dir_okay=False))
-def review_apply(run_dir: Path, corrections: Path) -> None:
+@click.option("--confirmed-by", required=True, prompt=False)
+def review_apply(run_dir: Path, corrections: Path, confirmed_by: str) -> None:
     """Apply explicit field corrections to records.corrected.jsonl."""
     store = ArtifactStore(run_dir)
     records = store.read_models("records.jsonl", ReactionRecord)
-    corrected = apply_corrections(records, corrections)
+    corrected, audit_entries = apply_corrections(
+        records,
+        corrections,
+        confirmed_by=confirmed_by,
+    )
     output = store.write_jsonl("records.corrected.jsonl", corrected)
+    audit_path = store.root / "audit.jsonl"
+    persisted_audit_entries: list[dict[str, Any]] = []
+    if audit_path.is_file():
+        persisted_audit_entries = [
+            json.loads(line)
+            for line in audit_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    audit_output = store.write_jsonl("audit.jsonl", [*persisted_audit_entries, *audit_entries])
     click.echo(str(output))
+    click.echo(str(audit_output))
 
 
 @main.command("evaluate")
@@ -194,8 +209,14 @@ def build_pipeline(config: AppConfig) -> Pipeline:
     """Construct the production pipeline without a service locator."""
     llm = LLMClient()
     prompts = PromptRegistry()
+    reasoning_model, used_reasoning_fallback = config.models.reasoning_spec()
+    if config.pipeline.adjudicate_ambiguous and used_reasoning_fallback:
+        logging.getLogger(__name__).warning(
+            "Reasoning model tier not configured; falling back to text model %s",
+            reasoning_model.model,
+        )
     adjudicator = (
-        Adjudicator(llm, prompts, config.models.text)
+        Adjudicator(llm, prompts, reasoning_model)
         if config.pipeline.adjudicate_ambiguous
         else None
     )

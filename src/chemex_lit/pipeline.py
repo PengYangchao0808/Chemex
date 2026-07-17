@@ -66,6 +66,7 @@ class Pipeline:
             run_id=run_id,
             input_path=request.pdf_path,
             input_sha256=input_hash,
+            config_dump=self.config.model_dump(mode="json"),
             config_sha256=config_fingerprint(self.config),
             version=__version__,
             prompt_versions=self.prompts.versions,

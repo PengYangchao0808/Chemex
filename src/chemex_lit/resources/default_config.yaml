@@ -12,7 +12,7 @@ mineru:
 models:
   text:
     base_url: https://api.deepseek.com/v1
-    model: deepseek-chat
+    model: deepseek-v4-flash
     api_key_env: CHEMEX_TEXT_API_KEY
     timeout: 300
     max_tokens: 8192
@@ -24,6 +24,16 @@ models:
     timeout: 180
     max_tokens: 4096
     retries: 3
+  reasoning:
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-v4-pro
+    api_key_env: CHEMEX_REASONING_API_KEY
+    timeout: 300
+    max_tokens: 8192
+    retries: 3
+    temperature: null
+    response_format: null
+    # Vendor-specific thinking controls belong in extra_payload.
 
 pipeline:
   extraction_workers: 3

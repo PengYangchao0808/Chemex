@@ -66,7 +66,7 @@ class MinerUAdapter:
         self._safe_extract(archive, target)
         markdown_path = self._find_one(target, "*.md")
         content_lists = list(target.rglob("*content_list*.json"))
-        content_list_path = content_lists[0] if content_lists else None
+        content_list_path = self._select_content_list(markdown_path, content_lists)
         images_dir = next((path for path in target.rglob("images") if path.is_dir()), target)
         return self.build_bundle(pdf_path, markdown_path, images_dir, content_list_path)
 
@@ -189,6 +189,23 @@ class MinerUAdapter:
         return matches[0]
 
     @staticmethod
+    def _select_content_list(markdown_path: Path, content_lists: list[Path]) -> Path | None:
+        if not content_lists:
+            return None
+        if len(content_lists) == 1:
+            return content_lists[0]
+        stem_matches = [path for path in content_lists if markdown_path.stem in path.name]
+        if len(stem_matches) == 1:
+            return stem_matches[0]
+        if len(stem_matches) > 1:
+            candidates = ", ".join(sorted(str(path) for path in stem_matches))
+            raise ExternalServiceError(f"Multiple MinerU content lists matched {markdown_path.stem}: {candidates}")
+        candidates = ", ".join(sorted(str(path) for path in content_lists))
+        raise ExternalServiceError(
+            f"Multiple MinerU content lists found for {markdown_path.name}: {candidates}"
+        )
+
+    @staticmethod
     def _add_structured_evidence(evidence: list[EvidenceRef], path: Path) -> None:
         try:
             content = json.loads(path.read_text(encoding="utf-8"))
@@ -200,19 +217,45 @@ class MinerUAdapter:
         for index, row in enumerate(rows):
             if not isinstance(row, dict) or row.get("type") not in {"table", "image"}:
                 continue
+            page_idx = row.get("page_idx")
+            # MinerU page_idx is 0-based; normalize to the 1-based page numbering used elsewhere.
+            page = page_idx + 1 if page_idx is not None else row.get("page")
             bbox = row.get("bbox")
             valid_bbox = (
                 (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
                 if isinstance(bbox, list) and len(bbox) == 4
                 else None
             )
+            asset_path = MinerUAdapter._resolve_asset_path(path, row.get("img_path"))
             evidence.append(
                 EvidenceRef(
                     evidence_id=f"layout-{index:04d}",
                     kind="table" if row.get("type") == "table" else "image",
-                    page=row.get("page_idx") or row.get("page"),
+                    page=page,
                     source_path=str(path),
+                    asset_path=str(asset_path) if asset_path is not None else None,
                     text=row.get("text") or row.get("table_body"),
                     bbox=valid_bbox,
                 )
             )
+
+    @staticmethod
+    def _resolve_asset_path(content_list_path: Path, raw_img_path: object) -> Path | None:
+        if not isinstance(raw_img_path, str) or not raw_img_path.strip():
+            return None
+        img_path = Path(raw_img_path)
+        candidates = []
+        if img_path.is_absolute():
+            candidates.append(img_path)
+        else:
+            candidates.extend(
+                [
+                    content_list_path.parent / img_path,
+                    content_list_path.parent.parent / img_path,
+                ]
+            )
+        for candidate in candidates:
+            resolved = candidate.resolve()
+            if resolved.is_file():
+                return resolved
+        return None

@@ -109,13 +109,21 @@ class LLMClient:
         else:
             content = prompt
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": model.model,
             "messages": [{"role": "user", "content": content}],
-            "temperature": 0,
-            "max_tokens": model.max_tokens,
-            "response_format": {"type": "json_object"},
         }
+        if model.temperature is not None:
+            payload["temperature"] = model.temperature
+        if model.max_tokens is not None:
+            payload["max_tokens"] = model.max_tokens
+        if model.response_format is not None:
+            payload["response_format"] = {"type": model.response_format}
+        collisions = {key for key in model.extra_payload if key in {"model", "messages"}}
+        if collisions:
+            joined = ", ".join(sorted(collisions))
+            raise ExternalServiceError(f"extra_payload may not override reserved payload keys: {joined}")
+        payload.update(model.extra_payload)
         url = self._endpoint(model.base_url)
         headers = {
             "Authorization": f"Bearer {model.api_key()}",

@@ -7,7 +7,7 @@ import json
 import os
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -33,7 +33,10 @@ class ModelSpec(ConfigModel):
     model: str
     api_key_env: str
     timeout: int = Field(default=300, ge=10)
-    max_tokens: int = Field(default=8192, ge=256)
+    temperature: float | None = 0.0
+    max_tokens: int | None = Field(default=8192, ge=256)
+    response_format: Literal["json_object"] | None = "json_object"
+    extra_payload: dict[str, Any] = Field(default_factory=dict)
     retries: int = Field(default=3, ge=1, le=6)
 
     @field_validator("base_url")
@@ -53,6 +56,17 @@ class ModelSpec(ConfigModel):
 class ModelsConfig(ConfigModel):
     text: ModelSpec
     vision: ModelSpec
+    reasoning: ModelSpec | None = None
+
+    def reasoning_spec(self) -> tuple[ModelSpec, bool]:
+        """Return the effective reasoning model and whether text fallback was used.
+
+        Returns:
+            A tuple of `(model_spec, used_fallback)`.
+        """
+        if self.reasoning is None:
+            return self.text, True
+        return self.reasoning, False
 
 
 class PipelineConfig(ConfigModel):
@@ -80,6 +94,9 @@ _ENV_OVERRIDES: dict[str, tuple[str, ...]] = {
     "CHEMEX_VISION_BASE_URL": ("models", "vision", "base_url"),
     "CHEMEX_VISION_MODEL": ("models", "vision", "model"),
     "CHEMEX_VISION_API_KEY_ENV": ("models", "vision", "api_key_env"),
+    "CHEMEX_REASONING_BASE_URL": ("models", "reasoning", "base_url"),
+    "CHEMEX_REASONING_MODEL": ("models", "reasoning", "model"),
+    "CHEMEX_REASONING_API_KEY_ENV": ("models", "reasoning", "api_key_env"),
 }
 
 

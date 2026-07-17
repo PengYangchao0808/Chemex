@@ -30,7 +30,16 @@ class StructureExtractor:
             for item in document.evidence
             if item.kind == "image"
         }
-        images = [Path(path) for path in document.images if Path(path).is_file()]
+        table_assets = {
+            Path(item.asset_path).resolve()
+            for item in document.evidence
+            if item.kind == "table" and item.asset_path is not None
+        }
+        images = [
+            Path(path)
+            for path in document.images
+            if Path(path).is_file() and Path(path).resolve() not in table_assets
+        ]
         if self.workers == 1:
             rows = [self._extract_image(path, image_evidence.get(path.resolve())) for path in images]
         else:

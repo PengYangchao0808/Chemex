@@ -16,6 +16,32 @@ from chemex_lit.errors import ArtifactError
 T = TypeVar("T", bound=BaseModel)
 
 
+def _config_fingerprint(config_dump: dict[str, Any]) -> str:
+    payload = json.dumps(config_dump, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _config_diff(old: Any, new: Any, prefix: str = "") -> list[str]:
+    if type(old) is not type(new):
+        return [prefix or "<root>"]
+
+    if isinstance(old, dict):
+        differences: list[str] = []
+        keys = sorted(set(old) | set(new))
+        for key in keys:
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if key not in old or key not in new:
+                differences.append(path)
+                continue
+            differences.extend(_config_diff(old[key], new[key], path))
+        return differences
+
+    if isinstance(old, list):
+        return [] if old == new else [prefix or "<root>"]
+
+    return [] if old == new else [prefix or "<root>"]
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -45,12 +71,30 @@ class ArtifactStore:
         run_id: str,
         input_path: Path,
         input_sha256: str,
+        config_dump: dict[str, Any],
         config_sha256: str,
         version: str,
         prompt_versions: dict[str, str],
         models: dict[str, str],
     ) -> None:
         if self.manifest_path.exists():
+            manifest = self.manifest()
+            stored_config = manifest.get("config")
+            if isinstance(stored_config, dict):
+                differences = _config_diff(stored_config, config_dump)
+                if differences:
+                    changed = ", ".join(differences)
+                    raise ArtifactError(
+                        "Configuration changed since run creation: "
+                        f"{changed}. Changed config requires a fresh run directory."
+                    )
+                return
+
+            if manifest.get("config_sha256") != _config_fingerprint(config_dump):
+                raise ArtifactError(
+                    "Configuration changed since run creation. Legacy run metadata cannot "
+                    "list changed keys; use a fresh run directory."
+                )
             return
         self.write_json(
             "manifest.json",
@@ -61,6 +105,7 @@ class ArtifactStore:
                 "schema_version": "1.0",
                 "input_path": str(input_path.resolve()),
                 "input_sha256": input_sha256,
+                "config": config_dump,
                 "config_sha256": config_sha256,
                 "prompt_versions": prompt_versions,
                 "models": models,

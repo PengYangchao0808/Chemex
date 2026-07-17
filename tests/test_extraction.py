@@ -9,6 +9,7 @@ from chemex_lit.extraction import (
     structure_candidates_from_payload,
 )
 from chemex_lit.extraction.table import _markdown_tables
+from chemex_lit.models import EvidenceRef
 
 
 def test_reaction_payload_normalization() -> None:
@@ -53,3 +54,16 @@ def test_external_structure_short_form(tmp_path: Path) -> None:
 def test_markdown_table_detection() -> None:
     markdown = "before\n| Entry | Yield |\n|---|---|\n| 1 | 80 |\nafter"
     assert len(_markdown_tables(markdown)) == 1
+
+
+def test_evidence_ref_without_asset_path_still_parses() -> None:
+    evidence = EvidenceRef.model_validate(
+        {
+            "evidence_id": "layout-0001",
+            "kind": "table",
+            "source_path": "paper_content_list.json",
+            "text": "row",
+        }
+    )
+
+    assert evidence.asset_path is None

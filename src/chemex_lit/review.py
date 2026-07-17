@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,8 @@ from typing import Any
 from jinja2 import Template
 
 from chemex_lit.chemistry.render import render_smiles
-from chemex_lit.models import ReactionRecord
+from chemex_lit.chemistry.validate import Validator
+from chemex_lit.models import ReactionRecord, ValidationIssue
 
 
 def generate_review(records: list[ReactionRecord], output: Path) -> Path:
@@ -47,8 +49,14 @@ def generate_review(records: list[ReactionRecord], output: Path) -> Path:
 def apply_corrections(
     records: list[ReactionRecord],
     corrections_path: Path,
-) -> list[ReactionRecord]:
-    """Apply explicit JSON corrections and revalidate each modified record."""
+    *,
+    confirmed_by: str,
+) -> tuple[list[ReactionRecord], list[dict[str, Any]]]:
+    """Apply explicit JSON corrections, revalidate records, and emit audit entries."""
+    confirmed_by = confirmed_by.strip()
+    if not confirmed_by:
+        raise ValueError("confirmed_by must be a non-empty string")
+
     corrections = json.loads(corrections_path.read_text(encoding="utf-8"))
     if not isinstance(corrections, list):
         raise ValueError("Corrections file must contain a JSON array")
@@ -59,19 +67,78 @@ def apply_corrections(
         grouped.setdefault(str(item["reaction_id"]), []).append(item)
 
     result: list[ReactionRecord] = []
+    audit_entries: list[dict[str, Any]] = []
     known = {record.reaction_id for record in records}
     unknown = set(grouped) - known
     if unknown:
         raise ValueError(f"Corrections reference unknown reactions: {sorted(unknown)}")
 
     for record in records:
+        record_corrections = grouped.get(record.reaction_id)
+        if not record_corrections:
+            result.append(record)
+            continue
+
         data = record.model_dump(mode="json")
-        for correction in grouped.get(record.reaction_id, []):
+        paths: list[str] = []
+        for correction in record_corrections:
             _set_path(data, str(correction["path"]), correction.get("value"))
-        if record.reaction_id in grouped:
-            data["review_status"] = "accepted"
-        result.append(ReactionRecord.model_validate(data))
-    return result
+            paths.append(str(correction["path"]))
+
+        corrected_record, issues_added = _revalidate_record(ReactionRecord.model_validate(data))
+        result.append(corrected_record)
+        audit_entries.append(
+            {
+                "reaction_id": record.reaction_id,
+                "confirmed_by": confirmed_by,
+                "paths": paths,
+                "pre_status": record.review_status,
+                "post_status": corrected_record.review_status,
+                "issues_added": issues_added,
+                "confirmed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            }
+        )
+    return result, audit_entries
+
+
+def _revalidate_record(record: ReactionRecord) -> tuple[ReactionRecord, int]:
+    data = record.model_dump(mode="json")
+    issues = [issue for issue in record.issues if issue.code != "R001_INVALID_SMILES"]
+    issues_added = 0
+
+    for field_name in ("reactants", "products"):
+        compounds = data.get(field_name, [])
+        for compound in compounds:
+            smiles = compound.get("smiles")
+            if not smiles:
+                continue
+            canonical = Validator.canonicalize(smiles)
+            if canonical:
+                compound["smiles"] = canonical
+                continue
+
+            target_id = compound.get("label") or record.reaction_id
+            issue = ValidationIssue(
+                code="R001_INVALID_SMILES",
+                severity="error",
+                target_id=target_id,
+                message=f"Invalid SMILES: {smiles}",
+            )
+            if _has_issue(issues, issue):
+                continue
+            issues.append(issue)
+            issues_added += 1
+
+    data["issues"] = [issue.model_dump(mode="json") for issue in issues]
+    data["review_status"] = (
+        "needs_review" if any(issue.severity == "error" for issue in issues) else "accepted"
+    )
+    return ReactionRecord.model_validate(data), issues_added
+
+
+def _has_issue(issues: list[ValidationIssue], candidate: ValidationIssue) -> bool:
+    candidate_data = candidate.model_dump(mode="json")
+    return any(issue.model_dump(mode="json") == candidate_data for issue in issues)
 
 
 def _set_path(data: dict[str, Any], path: str, value: Any) -> None:

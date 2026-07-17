@@ -3,9 +3,11 @@ output_dir: outputs
 
 models:
   text:
-    model: deepseek-chat
+    model: deepseek-v4-flash
   vision:
     model: glm-4v-plus
+  reasoning:
+    model: deepseek-v4-pro
 
 pipeline:
   adjudicate_ambiguous: false

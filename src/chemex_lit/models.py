@@ -30,6 +30,7 @@ class EvidenceRef(StrictModel):
     kind: Literal["text", "table", "image"]
     page: int | None = None
     source_path: str
+    asset_path: str | None = None
     text: str | None = None
     bbox: tuple[float, float, float, float] | None = None
 
