@@ -1,0 +1,9 @@
+template: |
+  Extract reaction rows from the following chemistry tables or schemes.
+  Return a JSON object with key "reactions". Each item must contain:
+  reactants, products (arrays of {label, name}), reagents, solvents, temperature_c,
+  time, yield_pct, confidence. Do not invent structures or expand R groups.
+
+  Context: <<PAGE_CONTEXT>>
+  Content:
+  <<CONTENT>>

@@ -1,0 +1,13 @@
+template: |
+  Extract only experimentally performed chemical reactions from the paper text.
+  Do not treat mechanisms, proposed intermediates, literature background, or general procedures
+  without a concrete substrate/product pair as reactions.
+
+  Return a JSON object with key "reactions". Each item must contain:
+  reactants, products (arrays of {label, name}), reagents, solvents, temperature_c,
+  time, yield_pct, confidence. Use null for unknown scalar values and [] for unknown arrays.
+  Compound labels must be copied exactly from the paper. confidence must be between 0 and 1.
+
+  Context: <<PAGE_CONTEXT>>
+  Content:
+  <<CONTENT>>

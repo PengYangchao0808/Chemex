@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChemEx-Lit review</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; color: #17202a; }
+    article { border: 1px solid #d5d8dc; border-radius: 8px; margin: 1rem 0; padding: 1rem; }
+    .needs_review { border-left: 6px solid #d68910; }
+    .accepted { border-left: 6px solid #239b56; }
+    .structures { display: flex; flex-wrap: wrap; gap: 1rem; }
+    figure { margin: 0; max-width: 360px; }
+    img { max-width: 100%; }
+    code { overflow-wrap: anywhere; }
+    .error { color: #b03a2e; } .warning { color: #9a7d0a; }
+  </style>
+</head>
+<body>
+  <h1>ChemEx-Lit extraction review</h1>
+  {% for row in rows %}
+  <article class="{{ row.record.review_status }}">
+    <h2>{{ row.record.reaction_id }}</h2>
+    <p>Status: {{ row.record.review_status }} · confidence {{ '%.3f'|format(row.record.confidence) }}</p>
+    <div class="structures">
+      {% for item in row.structures %}
+      <figure>
+        {% if item.image %}<img src="{{ item.image }}" alt="{{ item.label }}">{% endif %}
+        <figcaption>{{ item.role }} {{ item.label }}<br><code>{{ item.smiles }}</code></figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    <p>Reagents: {{ row.record.reagents|join(', ') }}<br>
+       Solvents: {{ row.record.solvents|join(', ') }}<br>
+       Temperature: {{ row.record.temperature_c }} °C · Time: {{ row.record.time }} · Yield: {{ row.record.yield_pct }}%</p>
+    <ul>
+      {% for issue in row.record.issues %}
+      <li class="{{ issue.severity }}">{{ issue.code }} — {{ issue.message }}</li>
+      {% endfor %}
+    </ul>
+  </article>
+  {% endfor %}
+</body>
+</html>

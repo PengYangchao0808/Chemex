@@ -1,0 +1,11 @@
+schema_version: 1
+output_dir: outputs
+
+models:
+  text:
+    model: deepseek-chat
+  vision:
+    model: glm-4v-plus
+
+pipeline:
+  adjudicate_ambiguous: false

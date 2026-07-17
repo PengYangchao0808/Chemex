@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChemEx-Lit 1.0.0 发布规划</title>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --primary: #2563eb;
+            --primary-light: #eff6ff;
+            --danger: #dc2626;
+            --danger-light: #fef2f2;
+            --warning: #d97706;
+            --warning-light: #fffbeb;
+            --success: #16a34a;
+            --success-light: #f0fdf4;
+            --info: #0891b2;
+            --info-light: #ecfeff;
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+            --radius: 10px;
+        }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+        .sidebar {
+            width: 260px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            padding: 24px 16px;
+            position: fixed;
+            top: 0; bottom: 0; left: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .brand {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 8px;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .brand-sub {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        .nav a {
+            display: block;
+            padding: 8px 12px;
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.92rem;
+            margin-bottom: 4px;
+        }
+        .nav a:hover { background: var(--primary-light); color: var(--primary); text-decoration: none; }
+        .main {
+            margin-left: 260px;
+            flex: 1;
+            padding: 32px 40px;
+            max-width: 1100px;
+        }
+        h1, h2, h3, h4 { margin-top: 0; font-weight: 700; }
+        h1 { font-size: 2rem; margin-bottom: 8px; }
+        h2 { font-size: 1.5rem; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+        h3 { font-size: 1.15rem; margin: 28px 0 12px; color: var(--text); }
+        p { margin: 0 0 12px; }
+        .card {
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .metric {
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 20px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--primary);
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+        .metric-label { font-size: 0.85rem; color: var(--text-muted); }
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        .badge-danger { background: var(--danger-light); color: var(--danger); }
+        .badge-warning { background: var(--warning-light); color: var(--warning); }
+        .badge-success { background: var(--success-light); color: var(--success); }
+        .badge-info { background: var(--info-light); color: var(--info); }
+        .badge-muted { background: var(--bg); color: var(--text-muted); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            margin: 16px 0;
+        }
+        th, td {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background: var(--bg);
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #fafafa; }
+        .timeline {
+            display: flex;
+            align-items: stretch;
+            gap: 0;
+            margin: 24px 0;
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+        .timeline-step {
+            flex: 1;
+            padding: 20px 16px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            position: relative;
+        }
+        .timeline-step:last-child { border-right: none; }
+        .timeline-step::after {
+            content: "→";
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--border);
+            font-weight: 700;
+        }
+        .timeline-step:last-child::after { display: none; }
+        .timeline-version { font-weight: 800; color: var(--primary); font-size: 1.1rem; }
+        .timeline-phase { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; }
+        .tree { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.85rem; line-height: 1.8; background: var(--bg); padding: 16px 20px; border-radius: var(--radius); }
+        .tree .dir { color: var(--primary); font-weight: 600; }
+        .tree .file { color: var(--text); }
+        .tree .comment { color: var(--text-muted); font-style: italic; }
+        .tree .indent { display: inline-block; width: 20px; }
+        .callout {
+            border-left: 4px solid var(--primary);
+            background: var(--primary-light);
+            padding: 16px 20px;
+            border-radius: 0 var(--radius) var(--radius) 0;
+            margin: 16px 0;
+        }
+        .callout-danger { border-left-color: var(--danger); background: var(--danger-light); }
+        .callout-warning { border-left-color: var(--warning); background: var(--warning-light); }
+        .callout-success { border-left-color: var(--success); background: var(--success-light); }
+        ul.checklist { list-style: none; padding-left: 0; }
+        ul.checklist li { padding: 6px 0 6px 28px; position: relative; }
+        ul.checklist li::before {
+            content: "☐";
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+            font-weight: 700;
+        }
+        ul.checklist li.checked::before { content: "☑"; color: var(--success); }
+        .footer {
+            margin-top: 60px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+        @media print {
+            .sidebar { display: none; }
+            .main { margin-left: 0; max-width: none; }
+            .card { box-shadow: none; border: 1px solid var(--border); page-break-inside: avoid; }
+            .timeline { box-shadow: none; border: 1px solid var(--border); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="brand">🧪 ChemEx-Lit</div>
+            <div class="brand-sub">1.0.0 发布规划与重构方案</div>
+            <nav class="nav">
+                <a href="#summary">执行摘要</a>
+                <a href="#blockers">发布阻断项</a>
+                <a href="#directory">目录重构</a>
+                <a href="#github">GitHub 管理</a>
+                <a href="#release">1.0.0 发布方案</a>
+                <a href="#criteria">验收条件</a>
+                <a href="#order">实施顺序</a>
+            </nav>
+        </aside>
+
+        <main class="main">
+            <section id="summary">
+                <h1>ChemEx-Lit 1.0.0 发布规划</h1>
+                <p class="text-muted" style="font-size:1.05rem;">将当前 0.3.0 定义为实验性历史快照，通过更名、src 布局、CLI 拆分与测试收敛，分四个阶段推进至首个稳定正式版。</p>
+
+                <div class="metrics">
+                    <div class="metric">
+                        <div class="metric-value">0.3.0</div>
+                        <div class="metric-label">当前版本</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">1.0.0</div>
+                        <div class="metric-label">目标正式版</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">4</div>
+                        <div class="metric-label">发布阶段</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">10</div>
+                        <div class="metric-label">发布阻断项</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">89</div>
+                        <div class="metric-label">当前 Python 文件</div>
+                    </div>
+                </div>
+
+                <div class="callout callout-danger">
+                    <strong>核心结论</strong>：不要直接将当前 0.3.0 升级后发布。应将其标记为 <em>pre-v1 experimental snapshot</em>，先完成发布面收敛，项目更名为 <strong>ChemEx-Lit</strong>，再按 <strong>1.0.0a1 → 1.0.0b1 → 1.0.0rc1 → 1.0.0</strong> 发布。
+                </div>
+            </section>
+
+            <section id="blockers">
+                <h2>发布阻断项</h2>
+                <p>本地审计发现的结构性、打包与合规风险，必须在首个稳定版之前解决。</p>
+                <table>
+                    <thead>
+                        <tr><th>风险</th><th>严重度</th><th>影响</th><th>解决方向</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>当前不是 Git 仓库</td>
+                            <td><span class="badge badge-danger">阻断</span></td>
+                            <td>无版本历史、无法 CI、无法发布</td>
+                            <td>初始化私有仓库，脱敏后提交历史快照</td>
+                        </tr>
+                        <tr>
+                            <td><code>main.py</code> ~1188 行、<code>orchestrator.py</code> ~965 行、<code>semi_manual.py</code> ~2860 行</td>
+                            <td><span class="badge badge-danger">阻断</span></td>
+                            <td>职责过载，难以维护与测试</td>
+                            <td>按功能拆分为 CLI / pipeline / extraction 模块</td>
+                        </tr>
+                        <tr>
+                            <td><code>main.py</code> 后半部分重新定义 run/resume/status</td>
+                            <td><span class="badge badge-danger">阻断</span></td>
+                            <td>模块级符号被覆盖，结构性隐患</td>
+                            <td>删除重复定义，统一命令注册</td>
+                        </tr>
+                        <tr>
+                            <td>测试：424 项中 14 失败、12 错误</td>
+                            <td><span class="badge badge-danger">阻断</span></td>
+                            <td>SMILES 契约漂移、集成失败、Windows 路径问题</td>
+                            <td>修复真实失败，统一测试目录</td>
+                        </tr>
+                        <tr>
+                            <td><code>toolkit/tests/</code> 不在默认 pytest 范围且独立运行 9 个导入错误</td>
+                            <td><span class="badge badge-warning">高</span></td>
+                            <td>测试覆盖割裂，归档代码破坏独立测试</td>
+                            <td>合并到 <code>tests/</code>，修复或移除归档 import</td>
+                        </tr>
+                        <tr>
+                            <td>ruff / build 不可用且未列入 dev 依赖</td>
+                            <td><span class="badge badge-warning">高</span></td>
+                            <td>无法保证代码质量与可发布包</td>
+                            <td>加入 <code>pyproject.toml</code> dev 依赖与 CI</td>
+                        </tr>
+                        <tr>
+                            <td>wheel 安装后 prompts / 配置不可访问</td>
+                            <td><span class="badge badge-danger">阻断</span></td>
+                            <td>源码目录可运行，wheel 不可运行</td>
+                            <td>采用 src layout，将 prompts 和默认配置打包为包内资源</td>
+                        </tr>
+                        <tr>
+                            <td><code>credentials.yaml</code> 含 5 个非占位敏感配置</td>
+                            <td><span class="badge badge-danger">阻断</span></td>
+                            <td>首次推送即有泄露风险</td>
+                            <td>轮换密钥，历史扫描，提交前 secret scan</td>
+                        </tr>
+                        <tr>
+                            <td>PyPI 上的 <code>chemex</code> 已被占用</td>
+                            <td><span class="badge badge-danger">阻断</span></td>
+                            <td>无法以 <code>pip install chemex</code> 发布</td>
+                            <td>统一更名为 <code>chemex-lit</code></td>
+                        </tr>
+                        <tr>
+                            <td>声明 Python ≥3.9，但 3.9 已 EOL</td>
+                            <td><span class="badge badge-warning">高</span></td>
+                            <td>正式版不应以 EOL 版本为最低</td>
+                            <td>最低版本提升至 3.11</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="directory">
+                <h2>目录重构方案</h2>
+                <p>采用 src layout 解决 wheel 安装与源码运行不一致的问题，并按单一职责拆分模块。</p>
+
+                <div class="tree">
+                    <div class="dir">chemex-lit/</div>
+                    <div><span class="indent"></span><span class="dir">src/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="dir">chemex_lit/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">cli/</span> <span class="comment"># app.py, run.py, config.py, review.py, evaluate.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">core/</span> <span class="comment"># config, models, errors, io, logging</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">pipeline/</span> <span class="comment"># orchestrator, checkpoints, batch, steps</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">extraction/</span> <span class="comment"># mineru, layout, text, table, structures, schemes</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">validation/</span> <span class="comment"># smiles, semantic, duplicates, stereo, repair, visual</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">assembly/</span> <span class="comment"># records, oracle</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">providers/</span> <span class="comment"># llm/, mineru/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">review/</span> <span class="comment"># generator, applier, templates/, static/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">evaluation/</span> <span class="comment"># metrics/, matching/, baselines/, reports/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">resources/</span> <span class="comment"># default_config.yaml, prompts/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">experimental/</span> <span class="comment"># semi_manual, harness, mcp, webui, molcode</span></div>
+                    <div><span class="indent"></span><span class="dir">tests/</span> <span class="comment"># unit/, integration/, contract/, fixtures/synthetic/</span></div>
+                    <div><span class="indent"></span><span class="dir">benchmarks/</span> <span class="comment"># manifest only, no copyrighted PDFs</span></div>
+                    <div><span class="indent"></span><span class="dir">docs/</span> <span class="comment"># user-guide/, architecture/, adr/, development/, archive/</span></div>
+                    <div><span class="indent"></span><span class="dir">.github/</span> <span class="comment"># workflows, templates, CODEOWNERS</span></div>
+                    <div><span class="indent"></span><span class="file">pyproject.toml, README.md, CHANGELOG.md, LICENSE</span></div>
+                    <div><span class="indent"></span><span class="file">CONTRIBUTING.md, SECURITY.md, CITATION.cff</span></div>
+                </div>
+
+                <h3>迁移映射</h3>
+                <table>
+                    <thead>
+                        <tr><th>当前内容</th><th>建议处理</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>main.py</code></td><td>拆分为 <code>cli/</code> 下独立命令模块</td></tr>
+                        <tr><td><code>orchestrator.py</code>, <code>pipeline_steps.py</code></td><td>移入 <code>pipeline/</code>，编排层只组织步骤，不实现化学逻辑</td></tr>
+                        <tr><td>提取器模块</td><td>统一进入 <code>extraction/</code></td></tr>
+                        <tr><td>G1–G4、RDKit、视觉检查</td><td>统一进入 <code>validation/</code></td></tr>
+                        <tr><td>Oracle、RecordAssembler</td><td>进入 <code>assembly/</code></td></tr>
+                        <tr><td><code>eval/</code>、<code>chem_compare/</code>、baseline</td><td>合并为 <code>evaluation/</code></td></tr>
+                        <tr><td><code>agents/</code> 与 <code>skills/</code></td><td>合并为唯一 prompt 源；manifest 决定运行版本</td></tr>
+                        <tr><td>harness / webui / mcp / evolution / molcode</td><td>v1 暂放 <code>experimental/</code>，稳定核心不得反向依赖</td></tr>
+                        <tr><td><code>toolkit/_archive</code></td><td>删除；历史由 Git tag 保存</td></tr>
+                        <tr><td><code>.sisyphus/plans</code></td><td>有效内容转 GitHub Issues / ADR，其余归档</td></tr>
+                        <tr><td>根目录 HTML 报告</td><td>移入 <code>outputs/</code> 或 <code>docs/archive/</code></td></tr>
+                        <tr><td>原始论文 PDF</td><td>移至私有 benchmark 仓库；Git LFS 不能解决版权问题</td></tr>
+                        <tr><td><code>.opencode/node_modules</code></td><td>永远不提交；无关 skill 移出正式代码仓库</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="callout callout-warning">
+                    <strong>四条边界</strong>：
+                    <ol style="margin:8px 0 0 18px; padding:0;">
+                        <li>正式公开 API 只包含 CLI、配置格式和 JSONL Schema，不承诺所有 Python 内部类稳定。</li>
+                        <li>输出记录增加 <code>schema_version</code>。</li>
+                        <li>每次运行生成 <code>run_manifest.json</code>，记录软件版本、prompt 版本、模型、配置哈希、PDF 哈希和依赖版本。</li>
+                        <li>Prompt 只能有一个权威来源，不能继续同时维护 <code>agents/*.yaml</code> 和 <code>skills/*/best.yaml</code>。</li>
+                    </ol>
+                </div>
+            </section>
+
+            <section id="github">
+                <h2>GitHub 管理建议</h2>
+
+                <h3>统一命名</h3>
+                <table>
+                    <thead><tr><th>维度</th><th>命名</th></tr></thead>
+                    <tbody>
+                        <tr><td>品牌</td><td><strong>ChemEx-Lit</strong></td></tr>
+                        <tr><td>GitHub 仓库</td><td><code>chemex-lit</code></td></tr>
+                        <tr><td>PyPI distribution</td><td><code>chemex-lit</code></td></tr>
+                        <tr><td>Python import</td><td><code>chemex_lit</code></td></tr>
+                        <tr><td>CLI</td><td><code>chemex-lit</code></td></tr>
+                    </tbody>
+                </table>
+
+                <div class="callout callout-warning">
+                    不要只改 PyPI distribution 而保留 <code>import chemex</code>，否则仍会与现有 ChemEx 安装冲突。
+                </div>
+
+                <h3>仓库初始化</h3>
+                <ul class="checklist">
+                    <li>先建为私有仓库</li>
+                    <li>轮换当前所有真实 API Key</li>
+                    <li>排除 credentials.yaml、outputs/、node_modules/、原始论文、HTML 产物</li>
+                    <li>对待提交内容运行 secret scan</li>
+                    <li>创建脱敏历史快照提交，标记 <code>archive/pre-v1-20260717</code></li>
+                    <li>从 <code>refactor/v1</code> 分支开始目录重构</li>
+                    <li>达到 RC 标准后再决定是否公开</li>
+                </ul>
+
+                <h3>分支策略</h3>
+                <p>采用轻量 trunk-based 模式：</p>
+                <ul>
+                    <li><strong>main</strong>：始终可发布。</li>
+                    <li><strong>feat/*</strong>、<strong>fix/*</strong>、<strong>refactor/*</strong>：短期分支。</li>
+                    <li><strong>release/1.0</strong>：只在 RC 稳定期使用。</li>
+                    <li>Squash merge，提交标题使用 Conventional Commits。</li>
+                    <li>不设长期 develop 分支。</li>
+                </ul>
+
+                <h3>main Ruleset 建议</h3>
+                <ul class="checklist">
+                    <li>必须经 PR</li>
+                    <li>禁止 force push 和删除</li>
+                    <li>必须通过 CI、package smoke、test checks</li>
+                    <li>必须解决所有 review conversation</li>
+                    <li>多人团队要求 1 个批准；单人项目可暂设 0 个批准，但仍强制 PR + CI</li>
+                    <li>对 <code>v*</code> tag 单独设置不可修改、不可删除规则</li>
+                </ul>
+
+                <h3>GitHub Actions</h3>
+                <table>
+                    <thead><tr><th>Workflow</th><th>职责</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>ci.yml</code></td><td>Ubuntu + Windows，Python 3.11/3.12/3.13；Ruff、类型检查、全部测试</td></tr>
+                        <tr><td><code>package.yml</code></td><td>构建 wheel/sdist、twine check、在全新虚拟环境安装 wheel 后运行 CLI smoke test</td></tr>
+                        <tr><td><code>nightly-live.yml</code></td><td>可选真实 MinerU/LLM 集成测试，使用受保护 Environment，不在普通 PR 调用真实 API</td></tr>
+                        <tr><td><code>release.yml</code></td><td>GitHub Release 触发，构建一次并通过 PyPI Trusted Publishing 发布</td></tr>
+                    </tbody>
+                </table>
+
+                <p>其他配置：</p>
+                <ul>
+                    <li><code>.github/dependabot.yml</code>：每周检查 pip 和 GitHub Actions 依赖。</li>
+                    <li>CODEOWNERS、PR 模板、Bug/Feature/Data-quality Issue 模板。</li>
+                    <li>Milestone：1.0.0。</li>
+                    <li>Labels：<code>type:*</code>、<code>area:*</code>、<code>priority:P0-P3</code>、<code>release-blocker</code>。</li>
+                    <li>使用 PyPI OIDC Trusted Publishing（非长期 API token），并为 pypi Environment 设置人工批准。</li>
+                </ul>
+            </section>
+
+            <section id="release">
+                <h2>1.0.0 稳定正式版方案</h2>
+
+                <h3>v1.0 稳定范围</h3>
+                <table>
+                    <thead><tr><th>类型</th><th>内容</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="badge badge-success">正式支持</span></td><td><code>run</code> / <code>check</code> / <code>config</code> / <code>status</code> / <code>resume</code> / <code>batch</code> / <code>eval</code> / <code>review-apply</code></td></tr>
+                        <tr><td><span class="badge badge-success">正式支持</span></td><td>MinerU API 模式、API LLM backend、文本/表格/SMILES 提取、G1 SMILES 验证、RecordAssembler、单一 extraction review 页面、JSONL 输出、离线评价</td></tr>
+                        <tr><td><span class="badge badge-info">Beta/Experimental</span></td><td><code>semi</code>、Oracle、G2/G3/G4、DECIMER、agent bridge/agent CLI/hybrid、harness、自动进化、WebUI、MCP、MoleCode-lite、graph repair</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="callout callout-warning">
+                    <strong>重要</strong>：“代码已经存在”不等于“正式支持”。例如 G2/G3/G4 当前未接入正式 orchestrator 主链，v1 不应对外宣称它们稳定。
+                </div>
+
+                <h3>发布阶段</h3>
+                <div class="timeline">
+                    <div class="timeline-step">
+                        <div class="timeline-phase">Alpha</div>
+                        <div class="timeline-version">1.0.0a1</div>
+                        <p>更名、src layout、CLI 拆分、资源打包</p>
+                    </div>
+                    <div class="timeline-step">
+                        <div class="timeline-phase">Beta</div>
+                        <div class="timeline-version">1.0.0b1</div>
+                        <p>修复全部测试、统一测试目录、冻结 Schema</p>
+                    </div>
+                    <div class="timeline-step">
+                        <div class="timeline-phase">Release Candidate</div>
+                        <div class="timeline-version">1.0.0rc1</div>
+                        <p>真实论文回归、文档、TestPyPI 发布</p>
+                    </div>
+                    <div class="timeline-step">
+                        <div class="timeline-phase">Stable</div>
+                        <div class="timeline-version">1.0.0</div>
+                        <p>正式 GitHub Release + PyPI</p>
+                    </div>
+                </div>
+
+                <table>
+                    <thead><tr><th>阶段</th><th>主要工作</th><th>出口条件</th></tr></thead>
+                    <tbody>
+                        <tr><td><strong>1.0.0a1</strong></td><td>更名、src layout、CLI 拆分、资源打包</td><td>wheel 能在干净环境安装运行</td></tr>
+                        <tr><td><strong>1.0.0b1</strong></td><td>修复全部测试、统一测试目录、冻结 Schema</td><td>Windows/Ubuntu CI 全绿</td></tr>
+                        <tr><td><strong>1.0.0rc1</strong></td><td>真实论文回归、文档、TestPyPI 发布</td><td>无 P0/P1，公开接口冻结至少 7 天</td></tr>
+                        <tr><td><strong>1.0.0</strong></td><td>正式 GitHub Release + PyPI</td><td>RC 无阻断回归</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="criteria">
+                <h2>正式发布验收条件</h2>
+                <p>1.0.0 发布必须全部满足：</p>
+                <ul class="checklist">
+                    <li>默认 pytest 包含原 <code>toolkit/tests</code>，且 100% 通过。</li>
+                    <li>Windows/Ubuntu × Python 3.11–3.13 全绿。</li>
+                    <li><code>ruff format --check</code>、<code>ruff check</code>、类型检查全绿。</li>
+                    <li>wheel 和 sdist 均能构建；从 wheel 安装后 prompts、模板、默认配置仍可访问。</li>
+                    <li><code>chemex-lit --version</code>、<code>--help</code>、<code>check</code>、合成 fixture pipeline smoke 全部通过。</li>
+                    <li>不再出现“0 条记录但状态仍为 success”的静默成功；至少区分 success、completed_empty、partial、failed。</li>
+                    <li>至少建立 5 篇不同布局论文的私有回归集；正式发布以“不低于冻结基线”为 gate。</li>
+                    <li>JSONL Schema 100% 可验证，记录 <code>schema_version</code>。</li>
+                    <li>没有真实密钥、原始输出、node_modules、受版权限制论文进入公开历史。</li>
+                    <li>README、安装指南、配置参考、输出 Schema、迁移指南、LICENSE、CHANGELOG、SECURITY、CITATION 完整。</li>
+                    <li>1.0.0rc1 后不再增加功能，只修阻断问题。</li>
+                </ul>
+            </section>
+
+            <section id="order">
+                <h2>推荐实施顺序</h2>
+                <div class="card">
+                    <table>
+                        <thead><tr><th>顺序</th><th>阶段</th><th>关键产出</th></tr></thead>
+                        <tbody>
+                            <tr><td><strong>1</strong></td><td>脱敏建库与更名</td><td>私有 GitHub repo、密钥轮换、archive/pre-v1 tag</td></tr>
+                            <tr><td><strong>2</strong></td><td>目录 / 打包重构</td><td>src layout、模块拆分、资源打包进 wheel</td></tr>
+                            <tr><td><strong>3</strong></td><td>统一测试与 CI</td><td>全部测试通过、GitHub Actions 四 workflow 全绿</td></tr>
+                            <tr><td><strong>4</strong></td><td>进入 RC</td><td>1.0.0rc1 在 TestPyPI 发布、公开接口冻结</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="callout callout-success">
+                    <strong>总结</strong>：当前状态适合标记为 <em>pre-v1 experimental snapshot</em>，尚不适合直接发布稳定版。最合理的顺序是：先完成脱敏与仓库建立，再做目录/打包重构，随后统一测试与 CI，最后进入 RC。
+                </div>
+            </section>
+
+            <div class="footer">
+                生成日期：2026-07-17 · 基于 ChemEx 0.3.0 本地审计结果与发布规划建议。
+            </div>
+        </main>
+    </div>
+</body>
+</html>

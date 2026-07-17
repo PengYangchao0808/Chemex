@@ -1,0 +1,32 @@
+schema_version: 1
+output_dir: outputs
+
+mineru:
+  base_url: https://mineru.net
+  api_key_env: MINERU_API_KEY
+  timeout: 600
+  poll_interval: 5.0
+  language: en
+  backend: pipeline
+
+models:
+  text:
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    api_key_env: CHEMEX_TEXT_API_KEY
+    timeout: 300
+    max_tokens: 8192
+    retries: 3
+  vision:
+    base_url: https://open.bigmodel.cn/api/paas/v4
+    model: glm-4v-plus
+    api_key_env: CHEMEX_VISION_API_KEY
+    timeout: 180
+    max_tokens: 4096
+    retries: 3
+
+pipeline:
+  extraction_workers: 3
+  image_workers: 1
+  adjudicate_ambiguous: false
+  max_text_chars: 50000

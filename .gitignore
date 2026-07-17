@@ -1,0 +1,29 @@
+# Secrets
+credentials.yaml
+.env
+legacy/
+
+# Outputs (regenerable)
+outputs/
+experiments/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.so
+.coverage
+coverage.xml
+
+# Tools
+.pytest_cache/
+.ruff_cache/
+.venv/
+node_modules/
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,4 @@
+include LICENSE
+prune legacy
+prune outputs
+global-exclude *.pyc
