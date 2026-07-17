@@ -83,14 +83,14 @@ def build_producer_plan(
     if mode == "auto":
         return ProducerPlan(
             text=_cli_spec(config.models.text),
-            table=_cli_spec(config.models.text),
+            table=_cli_spec(config.models.vision),
             structure=_cli_spec(config.models.vision),
             adjudication=_cli_spec(reasoning_model),
         )
     if mode == "semi":
         return ProducerPlan(
             text=_cli_spec(config.models.text),
-            table=_cli_spec(config.models.text),
+            table=_cli_spec(config.models.vision),
             structure=ProducerSpec(kind="human"),
             adjudication=_cli_spec(reasoning_model),
         )
@@ -754,7 +754,7 @@ class Pipeline:
                 "text": self.config.models.text.model_dump(mode="json")
                 if plan.text.kind == "cli_model"
                 else None,
-                "table": self.config.models.text.model_dump(mode="json")
+                "table": self.config.models.vision.model_dump(mode="json")
                 if plan.table.kind == "cli_model"
                 else None,
                 "structure": self.config.models.vision.model_dump(mode="json")
@@ -823,7 +823,7 @@ class Pipeline:
                 self._task_provenance(
                     task=task,
                     producer=plan.table,
-                    model=self.config.models.text,
+                    model=self.config.models.vision,
                     input_hash=input_hash,
                     candidates=reaction_results.get(task.task_id, []),
                     state=state,

@@ -466,3 +466,17 @@ def test_resume_rejects_mismatched_mode(tmp_path: Path) -> None:
 
     with pytest.raises(ArtifactError, match="Run mode changed"):
         pipeline.run(RunRequest(pdf_path=pdf, output_dir=run_dir, resume=True, mode="semi"))
+
+
+def test_producer_plan_maps_channels_to_model_tiers() -> None:
+    config = load_config()
+    auto = build_producer_plan("auto", config, False)
+    assert auto.text.model == config.models.text.model
+    assert auto.table.model == config.models.vision.model
+    assert auto.structure.model == config.models.vision.model
+    reasoning_model, _ = config.models.reasoning_spec()
+    assert auto.adjudication.model == reasoning_model.model
+
+    semi = build_producer_plan("semi", config, False)
+    assert semi.table.model == config.models.vision.model
+    assert semi.structure.kind == "human"

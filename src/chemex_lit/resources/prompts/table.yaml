@@ -4,6 +4,9 @@ template: |
   reactants, products (arrays of {label, name}), reagents, solvents, temperature_c,
   time, yield_pct, confidence. Do not invent structures or expand R groups.
 
+  The input may include a table image plus extracted text or caption. Use both.
+  If entries are embedded as images inside the table, read them from the image.
+
   Context: <<PAGE_CONTEXT>>
   Content:
   <<CONTENT>>

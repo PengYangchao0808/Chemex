@@ -271,7 +271,7 @@ def _build_pipeline(config: AppConfig) -> Pipeline:
             config.models.text,
             config.pipeline.max_text_chars,
         ),
-        table_extractor=TableExtractor(llm, prompts, config.models.text),
+        table_extractor=TableExtractor(llm, prompts, config.models.vision),
         structure_extractor=StructureExtractor(
             llm,
             prompts,

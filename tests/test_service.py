@@ -161,6 +161,14 @@ def _structure_submission(task: ExtractionTask, smiles7: str = "CC", smiles8: st
     ).model_dump(mode="json")
 
 
+def test_build_pipeline_wires_table_extractor_to_vision_model() -> None:
+    config = load_config()
+
+    pipeline = service_module._build_pipeline(config)
+
+    assert pipeline.table_extractor.model == config.models.vision
+
+
 def test_service_run_semi_returns_awaiting_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_pipeline(monkeypatch)
     pdf = tmp_path / "paper.pdf"

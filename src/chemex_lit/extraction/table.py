@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from chemex_lit.config import ModelSpec
 from chemex_lit.extraction import reaction_candidates_from_payload
@@ -12,7 +13,7 @@ from chemex_lit.models import DocumentBundle, ExtractionTask, ReactionCandidate,
 
 
 class TableExtractor:
-    """Fulfill table extraction tasks with the configured text model."""
+    """Fulfill table extraction tasks with the configured vision model."""
 
     def __init__(self, llm: LLMClient, prompts: PromptRegistry, model: ModelSpec) -> None:
         self.llm = llm
@@ -22,7 +23,8 @@ class TableExtractor:
     def fulfill(self, task: ExtractionTask) -> list[ReactionCandidate]:
         """Fulfill one table task and normalize the LLM payload."""
 
-        payload = self.llm.complete(self.model, task.instructions)
+        image_paths = [Path(image.path) for image in task.assets.images if Path(image.path).is_file()]
+        payload = self.llm.complete(self.model, task.instructions, image_paths)
         return reaction_candidates_from_payload(payload, "table", task.evidence_ids)
 
     def extract(self, document: DocumentBundle) -> list[ReactionCandidate]:
