@@ -77,9 +77,23 @@ class ArtifactStore:
         version: str,
         prompt_versions: dict[str, str],
         models: dict[str, str],
+        mode: str = "auto",
+        producer_plan: dict[str, Any] | None = None,
     ) -> None:
+        plan_dump = producer_plan or {}
         if self.manifest_path.exists():
             manifest = self.manifest()
+            if manifest.get("mode") not in (None, mode):
+                raise ArtifactError(
+                    "Run mode changed since run creation: "
+                    f"stored={manifest.get('mode')} requested={mode}. "
+                    "Mode changes require a fresh run directory."
+                )
+            if manifest.get("producer_plan") not in (None, plan_dump):
+                raise ArtifactError(
+                    "Producer plan changed since run creation. Producer changes require a fresh "
+                    "run directory."
+                )
             stored_config = manifest.get("config")
             if isinstance(stored_config, dict):
                 differences = _config_diff(stored_config, config_dump)
@@ -88,7 +102,7 @@ class ArtifactStore:
                     raise ArtifactError(
                         "Configuration changed since run creation: "
                         f"{changed}. Changed config requires a fresh run directory."
-                    )
+                        )
                 return
 
             if manifest.get("config_sha256") != _config_fingerprint(config_dump):
@@ -110,6 +124,8 @@ class ArtifactStore:
                 "config_sha256": config_sha256,
                 "prompt_versions": prompt_versions,
                 "models": models,
+                "mode": mode,
+                "producer_plan": plan_dump,
                 "status": "running",
                 "stages": {},
             },
@@ -152,6 +168,22 @@ class ArtifactStore:
         manifest = self.manifest()
         manifest["status"] = status
         manifest["finished_at"] = datetime.now(timezone.utc).isoformat()
+        self.write_json("manifest.json", manifest)
+
+    def set_status(self, status: str) -> None:
+        """Update the manifest status without finalizing the run."""
+
+        manifest = self.manifest()
+        manifest["status"] = status
+        self.write_json("manifest.json", manifest)
+
+    def invalidate_stages(self, names: Iterable[str]) -> None:
+        """Remove stored stage metadata so downstream stages recompute on resume."""
+
+        manifest = self.manifest()
+        stages = manifest.setdefault("stages", {})
+        for name in names:
+            stages.pop(name, None)
         self.write_json("manifest.json", manifest)
 
     def write_json(self, relative: str, data: Any) -> Path:

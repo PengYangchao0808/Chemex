@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from chemex_lit.assembly import Assembler
 from chemex_lit.chemistry import Validator
@@ -17,17 +18,27 @@ from chemex_lit.pipeline import Pipeline
 
 
 class FakePrompts:
-    versions = {"text": "1", "table": "1", "structure": "1"}
+    versions = {"text": "1", "table": "1", "structure": "1", "adjudicate": "1"}
+
+    def render(self, name: str, replacements: dict[str, str]) -> str:
+        template = f"{name}: <<PAGE_CONTEXT>> <<CONTENT>> <<IMAGE_CONTEXT>> <<RECORD>> <<EVIDENCE>>"
+        for token, value in replacements.items():
+            template = template.replace(token, value)
+        return template
 
 
 class FakeMinerU:
     calls = 0
 
     def convert(self, pdf_path: Path, work_dir: Path) -> DocumentBundle:
+        del pdf_path
         self.calls += 1
+        image_path = work_dir / "scheme.png"
+        image_path.write_bytes(b"image")
         return DocumentBundle(
             document_id="doc",
             markdown="reaction",
+            images=[str(image_path)],
             evidence=[
                 EvidenceRef(
                     evidence_id="text-p1",
@@ -35,14 +46,23 @@ class FakeMinerU:
                     page=1,
                     source_path="paper.md",
                     text="reaction",
-                )
+                ),
+                EvidenceRef(
+                    evidence_id="img-1",
+                    kind="image",
+                    page=1,
+                    source_path=str(image_path),
+                ),
             ],
         )
 
 
 class ReactionExtractor:
-    def __init__(self, source: str) -> None:
-        self.source = source
+    def __init__(self, source: Literal["text", "table"]) -> None:
+        self.source: Literal["text", "table"] = source
+
+    def fulfill(self, task: object) -> list[ReactionCandidate]:
+        return self.extract(DocumentBundle(document_id="doc", markdown="", evidence=[]))
 
     def extract(self, document: DocumentBundle) -> list[ReactionCandidate]:
         return [
@@ -58,6 +78,9 @@ class ReactionExtractor:
 
 
 class StructureExtractor:
+    def fulfill(self, task: object) -> list[StructureCandidate]:
+        return self.extract(DocumentBundle(document_id="doc", markdown="", evidence=[]))
+
     def extract(self, document: DocumentBundle) -> list[StructureCandidate]:
         return [
             StructureCandidate(candidate_id="s7", compound_label="7", smiles="CC"),
@@ -103,6 +126,9 @@ def test_pipeline_resume_uses_cached_document(tmp_path: Path) -> None:
 
 def test_empty_pipeline_is_not_success(tmp_path: Path) -> None:
     class EmptyExtractor:
+        def fulfill(self, task: object) -> list[object]:
+            return []
+
         def extract(self, document: DocumentBundle) -> list[object]:
             return []
 

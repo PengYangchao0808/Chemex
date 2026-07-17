@@ -253,3 +253,4 @@ class RunSummary(StrictModel):
     review_count: int = Field(ge=0)
     output_dir: str
     stages: dict[str, str] = Field(default_factory=dict)
+    awaiting: list[str] = Field(default_factory=list)

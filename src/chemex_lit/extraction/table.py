@@ -6,37 +6,47 @@ import re
 
 from chemex_lit.config import ModelSpec
 from chemex_lit.extraction import reaction_candidates_from_payload
+from chemex_lit.extraction.tasks import build_table_tasks, task_id
 from chemex_lit.llm import LLMClient, PromptRegistry
-from chemex_lit.models import DocumentBundle, ReactionCandidate
+from chemex_lit.models import DocumentBundle, ExtractionTask, ReactionCandidate, TaskAssets
 
 
 class TableExtractor:
+    """Fulfill table extraction tasks with the configured text model."""
+
     def __init__(self, llm: LLMClient, prompts: PromptRegistry, model: ModelSpec) -> None:
         self.llm = llm
         self.prompts = prompts
         self.model = model
 
-    def extract(self, document: DocumentBundle) -> list[ReactionCandidate]:
-        inputs: list[tuple[str, str, list[str]]] = []
-        for evidence in document.evidence:
-            if evidence.kind == "table" and evidence.text:
-                context = f"page {evidence.page}" if evidence.page is not None else "table"
-                inputs.append((evidence.text, context, [evidence.evidence_id]))
+    def fulfill(self, task: ExtractionTask) -> list[ReactionCandidate]:
+        """Fulfill one table task and normalize the LLM payload."""
 
-        if not inputs:
-            inputs = [
-                (table, "markdown table", [])
-                for table in _markdown_tables(document.markdown)
+        payload = self.llm.complete(self.model, task.instructions)
+        return reaction_candidates_from_payload(payload, "table", task.evidence_ids)
+
+    def extract(self, document: DocumentBundle) -> list[ReactionCandidate]:
+        tasks = build_table_tasks(document, self.prompts)
+        if not tasks:
+            tasks = [
+                ExtractionTask(
+                    task_id=task_id("table", f"markdown:{index}"),
+                    kind="table",
+                    instruction_version=str(self.prompts.versions["table"]),
+                    instructions=self.prompts.render(
+                        "table",
+                        {"<<PAGE_CONTEXT>>": "markdown table", "<<CONTENT>>": table},
+                    ),
+                    output_schema_version="ReactionCandidate@1",
+                    input_artifacts=["document.json"],
+                    assets=TaskAssets(text=table),
+                )
+                for index, table in enumerate(_markdown_tables(document.markdown), 1)
             ]
 
         result: list[ReactionCandidate] = []
-        for content, context, evidence_ids in inputs:
-            prompt = self.prompts.render(
-                "table",
-                {"<<PAGE_CONTEXT>>": context, "<<CONTENT>>": content},
-            )
-            payload = self.llm.complete(self.model, prompt)
-            result.extend(reaction_candidates_from_payload(payload, "table", evidence_ids))
+        for task in tasks:
+            result.extend(self.fulfill(task))
         return list({row.candidate_id: row for row in result}.values())
 
 
