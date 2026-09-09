@@ -47,8 +47,35 @@ src/chemex_lit/
 - Line length 100; Ruff target `py311`.
 - Google-style docstrings for public APIs.
 - Use `httpx`, Pydantic v2, and UTF-8.
-- Mock all external services in tests.
-- Required checks: pytest, Ruff, Pyright, build, and Twine check.
+- Mock all external services in tests. The suite never makes real MinerU or
+  LLM calls.
+
+## Commands
+
+```bash
+python -m pytest                 # full suite; enforced by pyproject addopts
+python -m pytest --no-cov tests/test_store.py   # focused run: --no-cov is required
+python -m ruff check src tests
+python -m pyright src/chemex_lit
+python -m build && python -m twine check dist/*
+```
+
+- `--cov-fail-under=70` is part of pytest `addopts`, so running a single test
+  file exits non-zero on the global coverage gate even when its tests pass;
+  pass `--no-cov` for focused runs.
+- CI runs the suite on ubuntu **and windows** with Python 3.11–3.13, plus a
+  package job that installs the built wheel and runs `chemex-lit --version`.
+  Keep code path-portable (`pathlib`, `platformdirs`) and explicit about
+  encoding. `scripts/smoke-cli.py` is a manual smoke check, not part of pytest.
+
+## Doc-contract lockstep (CI-enforced)
+
+`tests/test_skill_docs.py` parses `chemex-lit-skill/SKILL.md`,
+`chemex-lit-skill/references/*.md`, and `README.md`, and asserts they match the
+code contract: exactly three modes, flat `SubmissionProducer`, the command
+surface with `--json` outputs, and fenced JSON/JSONL examples that validate
+against `chemex_lit.models`. Changing the CLI commands, `RunSummary`, or the
+submission format without updating those docs in the same change fails CI.
 
 ## Legacy
 
