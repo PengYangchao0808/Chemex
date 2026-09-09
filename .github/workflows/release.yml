@@ -21,6 +21,7 @@ jobs:
 
   publish:
     needs: build
+    if: vars.PYPI_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

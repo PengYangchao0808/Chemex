@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.0.0 - 2026-09-09
+
+First team development baseline for collaborative GitHub development. The
+package release version is independent of the internal "v1 core" naming and
+the `records.jsonl` `schema_version: "1.0"` data contract; pre-1.0 versions
+may still break the public surface with documented CHANGELOG entries.
+
 ### Changed
 
 - Consolidated the 26-module v1 core to 20 structural units. The workflow

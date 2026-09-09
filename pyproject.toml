@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chemex-lit"
-version = "1.0.0a1"
+version = "0.0.0"
 description = "Traceable chemical reaction extraction from literature PDFs"
 readme = "README.md"
 license = "MIT"
