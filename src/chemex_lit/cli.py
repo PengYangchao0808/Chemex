@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import getpass
-import io
 import json
+import sys
 import logging
 from pathlib import Path
 from typing import Callable, Literal, NotRequired, TypedDict, cast
@@ -494,8 +494,7 @@ def _mask(value: str) -> str:
 
 def _read_secret(from_stdin: bool, name: str) -> str:
     if from_stdin:
-        stream = cast(io.TextIOBase, click.get_text_stream("stdin"))
-        return stream.readline().strip()
+        return sys.stdin.readline().strip()
     return getpass.getpass(f"{name}: ").strip()
 
 
