@@ -17,11 +17,6 @@ from chemex_lit.models import ProvenanceEntry
 T = TypeVar("T", bound=BaseModel)
 
 
-def _config_fingerprint(config_dump: dict[str, Any]) -> str:
-    payload = json.dumps(config_dump, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
 def _config_diff(old: Any, new: Any, prefix: str = "") -> list[str]:
     if type(old) is not type(new):
         return [prefix or "<root>"]
@@ -105,20 +100,17 @@ class ArtifactStore:
                     "Profile changes require a fresh run directory."
                 )
             stored_config = manifest.get("config")
-            if isinstance(stored_config, dict):
-                differences = _config_diff(stored_config, config_dump)
-                if differences:
-                    changed = ", ".join(differences)
-                    raise ArtifactError(
-                        "Configuration changed since run creation: "
-                        f"{changed}. Changed config requires a fresh run directory."
-                        )
-                return
-
-            if manifest.get("config_sha256") != _config_fingerprint(config_dump):
+            if not isinstance(stored_config, dict):
                 raise ArtifactError(
-                    "Configuration changed since run creation. Legacy run metadata cannot "
-                    "list changed keys; use a fresh run directory."
+                    "Run manifest predates v1 config tracking and cannot be resumed; "
+                    "start a fresh run with the same input instead."
+                )
+            differences = _config_diff(stored_config, config_dump)
+            if differences:
+                changed = ", ".join(differences)
+                raise ArtifactError(
+                    "Configuration changed since run creation: "
+                    f"{changed}. Changed config requires a fresh run directory."
                 )
             return
         self.write_json(

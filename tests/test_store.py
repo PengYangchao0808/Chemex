@@ -106,33 +106,7 @@ def test_initialise_raises_with_dotted_paths_for_changed_config(tmp_path: Path) 
     assert "models.text.model" in message
 
 
-def test_initialise_raises_for_legacy_manifest_hash_mismatch(tmp_path: Path) -> None:
-    input_file = tmp_path / "paper.pdf"
-    _ = input_file.write_bytes(b"pdf")
-    config_dump = {"models": {"text": {"model": "alpha"}}}
-    store = ArtifactStore(tmp_path / "run")
-    _ = store.write_json(
-        "manifest.json",
-        {
-            "run_id": "r",
-            "created_at": "2026-01-01T00:00:00+00:00",
-            "chemex_version": "1",
-            "schema_version": "1.0",
-            "input_path": str(input_file.resolve()),
-            "input_sha256": "a",
-            "config_sha256": _config_sha256({"models": {"text": {"model": "beta"}}}),
-            "prompt_versions": {},
-            "models": {},
-            "status": "running",
-            "stages": {},
-        },
-    )
-
-    with pytest.raises(ArtifactError, match="Legacy run metadata cannot list changed keys"):
-        _initialise_store(store, input_file, config_dump)
-
-
-def test_initialise_allows_legacy_manifest_hash_match(tmp_path: Path) -> None:
+def test_initialise_rejects_legacy_manifest_without_config(tmp_path: Path) -> None:
     input_file = tmp_path / "paper.pdf"
     _ = input_file.write_bytes(b"pdf")
     config_dump = {"models": {"text": {"model": "alpha"}}}
@@ -154,7 +128,8 @@ def test_initialise_allows_legacy_manifest_hash_match(tmp_path: Path) -> None:
         },
     )
 
-    _initialise_store(store, input_file, config_dump)
+    with pytest.raises(ArtifactError, match="predates v1 config tracking"):
+        _initialise_store(store, input_file, config_dump)
 
 
 def test_config_diff_reports_sorted_dotted_paths() -> None:
