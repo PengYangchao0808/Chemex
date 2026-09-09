@@ -7,7 +7,7 @@ import pytest
 
 from chemex_lit.config import MinerUConfig, ModelSpec
 from chemex_lit.errors import ExternalServiceError
-from chemex_lit.extraction.structure import StructureExtractor
+from chemex_lit.extraction.extractors import StructureExtractor
 from chemex_lit.extraction.tasks import build_structure_tasks
 from chemex_lit.llm import LLMClient, PromptRegistry
 from chemex_lit.mineru import MinerUAdapter

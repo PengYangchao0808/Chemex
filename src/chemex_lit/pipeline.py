@@ -24,8 +24,7 @@ from chemex_lit.extraction import (
     stable_id,
     structure_candidates_from_payload,
 )
-from chemex_lit.extraction.structure import StructureExtractor
-from chemex_lit.extraction.table import TableExtractor
+from chemex_lit.extraction.extractors import StructureExtractor, TableExtractor, TextExtractor
 from chemex_lit.extraction.tasks import (
     build_adjudication_tasks,
     build_structure_tasks,
@@ -33,7 +32,6 @@ from chemex_lit.extraction.tasks import (
     build_text_tasks,
     task_id,
 )
-from chemex_lit.extraction.text import TextExtractor
 from chemex_lit.llm import LLMClient, PromptRegistry
 from chemex_lit.mineru import MinerUAdapter
 from chemex_lit.models import (
