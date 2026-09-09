@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import getpass
+import io
 import json
 import logging
 from pathlib import Path
@@ -493,7 +494,8 @@ def _mask(value: str) -> str:
 
 def _read_secret(from_stdin: bool, name: str) -> str:
     if from_stdin:
-        return click.get_text_stream("stdin").readline().strip()
+        stream = cast(io.TextIOBase, click.get_text_stream("stdin"))
+        return stream.readline().strip()
     return getpass.getpass(f"{name}: ").strip()
 
 
@@ -652,7 +654,7 @@ def _print_run_summary(summary: RunSummary, as_json: bool) -> None:
     click.echo(f"Output: {summary.run_dir}")
     if summary.status == "awaiting_input":
         click.echo(f"Awaiting tasks: {len(summary.awaiting)}")
-        click.echo(f"Task file: {Path(summary.run_dir) / 'tasks/extraction.jsonl'}")
+        click.echo(f"Task file: {(Path(summary.run_dir) / 'tasks/extraction.jsonl').as_posix()}")
 
 
 def _print_submit_summary(summary: SubmitSummary) -> None:
