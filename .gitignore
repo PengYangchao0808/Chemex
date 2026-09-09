@@ -6,6 +6,12 @@ legacy/
 # Outputs (regenerable)
 outputs/
 experiments/
+/submissions/
+
+# Local plans and scratch (root-level only)
+.omo/
+/*.pdf
+/*.html
 
 # Python
 __pycache__/
