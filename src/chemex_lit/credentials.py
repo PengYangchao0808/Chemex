@@ -23,7 +23,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from chemex_lit.errors import ConfigurationError
+from chemex_lit.errors import ConfigurationError, utc_now
 
 STORE_VERSION = 1
 EXPIRING_SOON_DAYS = 7
@@ -186,7 +186,7 @@ def set_credential(
     store = load_auth_store(store_path)
     store.credentials[name] = StoredCredential(
         value=value.strip(),
-        updated_at=_utc_now(),
+        updated_at=utc_now(),
         expires_at=parsed_expiry,
     )
     _atomic_write_json(store_path or auth_store_path(), store.model_dump(mode="json"))
@@ -238,10 +238,6 @@ def _parse_iso(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:

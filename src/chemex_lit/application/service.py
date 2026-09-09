@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast, get_args
 
@@ -14,7 +13,7 @@ from chemex_lit.adjudicator import Adjudicator
 from chemex_lit.assembly import Assembler
 from chemex_lit.chemistry import Validator
 from chemex_lit.config import AppConfig
-from chemex_lit.errors import ArtifactError, ChemExError
+from chemex_lit.errors import ArtifactError, ChemExError, utc_now
 from chemex_lit.extraction.structure import StructureExtractor
 from chemex_lit.extraction.table import TableExtractor
 from chemex_lit.extraction.text import TextExtractor
@@ -33,6 +32,7 @@ from chemex_lit.models import (
 )
 from chemex_lit.pipeline import (
     Pipeline,
+    _task_entries,
     apply_decisions,
     apply_force_invalidation,
     apply_submissions,
@@ -173,7 +173,7 @@ class ChemExService:
 
             refreshed_state = _read_state(store)
             bucket = _submission_file_index(refreshed_state).setdefault(kind, {})
-            submitted_at = _utc_now()
+            submitted_at = utc_now()
             for path, file_hash, _ in parsed_files:
                 bucket[file_hash] = {
                     "file_name": path.name,
@@ -365,13 +365,6 @@ def _read_state(store: ArtifactStore) -> dict[str, Any]:
     return state
 
 
-def _task_entries(state: dict[str, Any]) -> dict[str, Any]:
-    tasks = state.setdefault("tasks", {})
-    if not isinstance(tasks, dict):
-        raise ArtifactError("Task state tasks must be a JSON object")
-    return tasks
-
-
 def _submission_file_index(state: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
     files = state.setdefault("submission_files", {})
     if not isinstance(files, dict):
@@ -403,7 +396,3 @@ def _reset_fulfilled_task_entries(
         entry.pop("submission_hash", None)
         entry.pop("decision", None)
         entry.pop("producer", None)
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

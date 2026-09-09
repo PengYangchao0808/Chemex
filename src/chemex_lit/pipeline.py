@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -16,7 +15,7 @@ from chemex_lit.adjudicator import Adjudicator
 from chemex_lit.assembly import Assembler
 from chemex_lit.chemistry import ValidationOutcome, Validator
 from chemex_lit.config import AppConfig, ModelSpec, config_fingerprint
-from chemex_lit.errors import ArtifactError, ChemExError
+from chemex_lit.errors import ArtifactError, ChemExError, utc_now
 from chemex_lit.extraction import (
     _bounded_percent,
     _compounds,
@@ -177,7 +176,7 @@ def apply_submissions(
                 "submission_hash": submission_hash,
                 "producer": submission.producer.model_dump(mode="json"),
                 "outputs": submission.outputs,
-                "updated_at": _utc_now(),
+                "updated_at": utc_now(),
             }
         )
         fulfilled_tasks += 1
@@ -209,7 +208,7 @@ def apply_force_invalidation(
             {
                 "type": "supersedes",
                 "task_ids": sorted(set(task_ids)),
-                "at": _utc_now(),
+                "at": utc_now(),
             }
         ],
     )
@@ -265,7 +264,7 @@ def apply_decisions(
                     "decision": decision.decision,
                     "rationale": decision.rationale,
                 },
-                "updated_at": _utc_now(),
+                "updated_at": utc_now(),
             }
         )
         fulfilled_tasks += 1
@@ -914,7 +913,7 @@ class Pipeline:
                     else None,
                     client_name=submission_producer.client_name if submission_producer else None,
                     client_version=submission_producer.client_version if submission_producer else None,
-                    created_at=_utc_now(),
+                    created_at=utc_now(),
                 )
             )
         return result
@@ -936,7 +935,7 @@ class Pipeline:
                 prompt_version=_prompt_version(self.prompts, "adjudication"),
                 instruction_version=task.instruction_version,
                 input_hash=input_hash,
-                created_at=_utc_now(),
+                created_at=utc_now(),
             )
             for task in tasks
         ]
@@ -966,7 +965,7 @@ class Pipeline:
                     model=producer.model,
                     policy=producer.policy,
                     attempt=producer.attempt,
-                    created_at=_utc_now(),
+                    created_at=utc_now(),
                 )
             )
         return entries
@@ -1262,5 +1261,3 @@ def _markdown_tables(markdown: str) -> list[str]:
     return tables
 
 
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

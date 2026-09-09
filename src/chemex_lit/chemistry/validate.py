@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Iterable, Literal
 
 from chemex_lit.models import ReactionCandidate, StructureCandidate, ValidationIssue
 
@@ -65,7 +65,7 @@ class Validator:
                 )
                 issues.append(self._issue("V007_STRUCTURE_COLLAPSE", "warning", target, f"One structure maps to labels {sorted(compound_labels)}"))
 
-        return ValidationOutcome(issues=_unique_issues(issues), canonical_smiles=canonical)
+        return ValidationOutcome(issues=unique_issues(issues), canonical_smiles=canonical)
 
     @staticmethod
     def canonicalize(smiles: str | None) -> str | None:
@@ -110,7 +110,9 @@ def normalize_label(label: str | None) -> str:
     return re.sub(r"\s+", "", label).lower()
 
 
-def _unique_issues(issues: list[ValidationIssue]) -> list[ValidationIssue]:
+def unique_issues(issues: Iterable[ValidationIssue]) -> list[ValidationIssue]:
+    """Deduplicate validation issues by ``(code, target_id, message)``, preserving order."""
+
     unique: dict[tuple[str, str, str], ValidationIssue] = {}
     for issue in issues:
         unique[(issue.code, issue.target_id, issue.message)] = issue

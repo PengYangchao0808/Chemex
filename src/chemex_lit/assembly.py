@@ -6,7 +6,7 @@ from collections import defaultdict
 from statistics import mean
 from typing import Iterable
 
-from chemex_lit.chemistry.validate import ValidationOutcome, Validator, normalize_label
+from chemex_lit.chemistry.validate import ValidationOutcome, Validator, normalize_label, unique_issues
 from chemex_lit.extraction import stable_id
 from chemex_lit.models import (
     CompoundRef,
@@ -98,7 +98,7 @@ class Assembler:
             evidence_ids=evidence,
             confidence=round(confidence, 4),
             review_status=status,
-            issues=_unique_issues(issues),
+            issues=unique_issues(issues),
         )
 
     def _resolve_compounds(
@@ -194,10 +194,3 @@ def _issue_index(issues: Iterable[ValidationIssue]) -> dict[str, list[Validation
 
 def _ordered_unique(values: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(value for value in values if value))
-
-
-def _unique_issues(issues: Iterable[ValidationIssue]) -> list[ValidationIssue]:
-    result: dict[tuple[str, str, str], ValidationIssue] = {}
-    for issue in issues:
-        result[(issue.code, issue.target_id, issue.message)] = issue
-    return list(result.values())
