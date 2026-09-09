@@ -6,7 +6,7 @@ from collections import defaultdict
 from statistics import mean
 from typing import Iterable
 
-from chemex_lit.chemistry.validate import ValidationOutcome, Validator, normalize_label, unique_issues
+from chemex_lit.chemistry import ValidationOutcome, Validator, normalize_label, unique_issues
 from chemex_lit.extraction import stable_id
 from chemex_lit.models import (
     CompoundRef,

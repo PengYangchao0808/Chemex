@@ -8,8 +8,7 @@ import pytest
 
 from chemex_lit.config import ModelSpec
 from chemex_lit.errors import ExternalServiceError, ExtractionError
-from chemex_lit.llm.client import LLMClient, extract_json
-from chemex_lit.llm.prompts import PromptRegistry
+from chemex_lit.llm import LLMClient, PromptRegistry, extract_json
 
 
 def test_extract_json_strips_fences_and_thinking() -> None:

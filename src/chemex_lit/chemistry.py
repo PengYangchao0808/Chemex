@@ -1,7 +1,8 @@
-"""One deterministic validation pass for reactions and structures."""
+"""Deterministic chemistry: one validation pass and structure rendering."""
 
 from __future__ import annotations
 
+import io
 import re
 from dataclasses import dataclass
 from typing import Iterable, Literal
@@ -117,3 +118,21 @@ def unique_issues(issues: Iterable[ValidationIssue]) -> list[ValidationIssue]:
     for issue in issues:
         unique[(issue.code, issue.target_id, issue.message)] = issue
     return list(unique.values())
+
+
+def render_smiles(smiles: str, size: tuple[int, int] = (360, 240)) -> bytes | None:
+    """Render one SMILES to PNG bytes, or ``None`` when RDKit cannot parse it."""
+
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import Draw  # pyright: ignore[reportAttributeAccessIssue]
+
+        molecule = Chem.MolFromSmiles(smiles)
+        if molecule is None:
+            return None
+        image = Draw.MolToImage(molecule, size=size)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+    except (ImportError, ValueError, OSError):
+        return None

@@ -11,8 +11,7 @@ from click.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chemex_lit.cli import main
-from chemex_lit.evaluation import evaluate_records
-from chemex_lit.evaluation.load import load_jsonl
+from chemex_lit.evaluation import evaluate_records, load_jsonl
 from chemex_lit.models import CompoundRef, ReactionRecord, ValidationIssue
 from chemex_lit.review import apply_corrections, generate_review
 from chemex_lit.store import ArtifactStore
