@@ -62,9 +62,6 @@ class ReactionExtractor:
         self.source: Literal["text", "table"] = source
 
     def fulfill(self, task: object) -> list[ReactionCandidate]:
-        return self.extract(DocumentBundle(document_id="doc", markdown="", evidence=[]))
-
-    def extract(self, document: DocumentBundle) -> list[ReactionCandidate]:
         return [
             ReactionCandidate(
                 candidate_id=self.source,
@@ -79,9 +76,6 @@ class ReactionExtractor:
 
 class StructureExtractor:
     def fulfill(self, task: object) -> list[StructureCandidate]:
-        return self.extract(DocumentBundle(document_id="doc", markdown="", evidence=[]))
-
-    def extract(self, document: DocumentBundle) -> list[StructureCandidate]:
         return [
             StructureCandidate(candidate_id="s7", compound_label="7", smiles="CC"),
             StructureCandidate(candidate_id="s8", compound_label="8", smiles="CCO"),

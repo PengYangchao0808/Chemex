@@ -10,9 +10,10 @@ from chemex_lit.extraction import (
     reaction_candidates_from_payload,
     structure_candidates_from_payload,
 )
-from chemex_lit.extraction.table import TableExtractor, _markdown_tables
+from chemex_lit.extraction.table import TableExtractor
 from chemex_lit.llm import LLMClient, PromptRegistry
 from chemex_lit.models import EvidenceRef, ExtractionTask, TaskAssets, TaskImageAsset
+from chemex_lit.pipeline import _markdown_tables
 
 
 class RecordingLLM:

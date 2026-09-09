@@ -8,6 +8,7 @@ import pytest
 from chemex_lit.config import MinerUConfig, ModelSpec
 from chemex_lit.errors import ExternalServiceError
 from chemex_lit.extraction.structure import StructureExtractor
+from chemex_lit.extraction.tasks import build_structure_tasks
 from chemex_lit.llm import LLMClient, PromptRegistry
 from chemex_lit.mineru import MinerUAdapter
 from chemex_lit.models import DocumentBundle, EvidenceRef
@@ -185,7 +186,8 @@ def test_structure_extractor_skips_table_asset_images(tmp_path: Path) -> None:
     llm = _LLMStub()
     extractor = StructureExtractor(llm, _PromptStub(), _model_spec(), workers=1)
 
-    rows = extractor.extract(document)
+    tasks = build_structure_tasks(document, _PromptStub())
+    rows = [candidate for task in tasks for candidate in extractor.fulfill(task)]
 
     assert len(llm.calls) == 1
     assert llm.calls[0] == [scheme_image.resolve()]
