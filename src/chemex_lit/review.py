@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -12,22 +11,24 @@ from jinja2 import Template
 
 from chemex_lit.chemistry.render import render_smiles
 from chemex_lit.chemistry.validate import Validator
+from chemex_lit.errors import utc_now
 from chemex_lit.models import ReactionRecord, ValidationIssue
+from chemex_lit.store import ArtifactStore
 
 
-def generate_review(records: list[ReactionRecord], output: Path) -> Path:
-    """Render the only supported review dashboard."""
-    assets = output.parent / "review_assets"
-    assets.mkdir(parents=True, exist_ok=True)
+def generate_review(records: list[ReactionRecord], store: ArtifactStore) -> Path:
+    """Render the only supported review dashboard into the run directory."""
     rows: list[dict[str, Any]] = []
     for record in records:
         structures: list[dict[str, str]] = []
         for index, compound in enumerate(record.reactants + record.products):
             image = ""
             if compound.smiles:
-                target = assets / f"{record.reaction_id}-{index}.png"
-                if render_smiles(compound.smiles, target):
-                    image = target.relative_to(output.parent).as_posix()
+                relative = f"review_assets/{record.reaction_id}-{index}.png"
+                png = render_smiles(compound.smiles)
+                if png is not None:
+                    store.write_bytes(relative, png)
+                    image = relative
             structures.append(
                 {
                     "label": compound.label or compound.name or "unlabelled",
@@ -42,8 +43,7 @@ def generate_review(records: list[ReactionRecord], output: Path) -> Path:
         "templates", "review.html.j2"
     )
     template = Template(template_path.read_text(encoding="utf-8"))
-    output.write_text(template.render(rows=rows), encoding="utf-8")
-    return output
+    return store.write_raw("review.html", template.render(rows=rows))
 
 
 def apply_corrections(
@@ -95,7 +95,7 @@ def apply_corrections(
                 "pre_status": record.review_status,
                 "post_status": corrected_record.review_status,
                 "issues_added": issues_added,
-                "confirmed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "confirmed_at": utc_now(),
             }
         )
     return result, audit_entries

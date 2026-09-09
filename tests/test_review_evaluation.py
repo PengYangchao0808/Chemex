@@ -15,6 +15,7 @@ from chemex_lit.evaluation import evaluate_records
 from chemex_lit.evaluation.load import load_jsonl
 from chemex_lit.models import CompoundRef, ReactionRecord, ValidationIssue
 from chemex_lit.review import apply_corrections, generate_review
+from chemex_lit.store import ArtifactStore
 
 
 def record(
@@ -35,7 +36,8 @@ def record(
 
 
 def test_generate_review(tmp_path: Path) -> None:
-    output = generate_review([record()], tmp_path / "review.html")
+    store = ArtifactStore(tmp_path / "run")
+    output = generate_review([record()], store)
     assert output.is_file()
     assert "r1" in output.read_text(encoding="utf-8")
 

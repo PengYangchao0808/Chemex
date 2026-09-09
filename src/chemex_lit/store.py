@@ -216,6 +216,20 @@ class ArtifactStore:
         self._atomic_write(path, payload + "\n")
         return path
 
+    def write_raw(self, relative: str, text: str) -> Path:
+        """Write raw text (HTML, Markdown, ...) atomically inside the run directory."""
+
+        path = self._path(relative)
+        self._atomic_write(path, text)
+        return path
+
+    def write_bytes(self, relative: str, data: bytes) -> Path:
+        """Write binary content (PNG, ...) atomically inside the run directory."""
+
+        path = self._path(relative)
+        self._atomic_write(path, data)
+        return path
+
     def read_json(self, relative: str) -> Any:
         path = self._path(relative)
         try:
@@ -282,11 +296,32 @@ class ArtifactStore:
         return path
 
     @staticmethod
-    def _atomic_write(path: Path, content: str) -> None:
+    def _atomic_write(path: Path, content: str | bytes) -> None:
         temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         try:
-            temp.write_text(content, encoding="utf-8")
+            if isinstance(content, bytes):
+                temp.write_bytes(content)
+            else:
+                temp.write_text(content, encoding="utf-8")
             os.replace(temp, path)
         finally:
             if temp.exists():
                 temp.unlink()
+
+
+def atomic_write_text(path: Path, text: str) -> Path:
+    """Atomically write text to a user-selected path outside any run directory.
+
+    Run artifacts always go through :class:`ArtifactStore`; this helper exists
+    for explicit user-directed exports (for example ``--output``) so the same
+    temp-then-replace discipline still applies.
+    """
+
+    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temp.write_text(text, encoding="utf-8")
+        os.replace(temp, path)
+    finally:
+        if temp.exists():
+            temp.unlink()
+    return path

@@ -16,10 +16,12 @@ def stable_id(prefix: str, payload: Any) -> str:
     return f"{prefix}-{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:12]}"
 
 
-def _compounds(
+def compound_refs(
     value: Any,
     role: Literal["reactant", "product", "reagent", "unknown"],
 ) -> list[CompoundRef]:
+    """Normalize raw payload values (strings, numbers, dicts) into CompoundRef rows."""
+
     if value is None:
         return []
     if isinstance(value, (str, int, float)):
@@ -38,7 +40,9 @@ def _compounds(
     return result
 
 
-def _strings(value: Any) -> list[str]:
+def string_list(value: Any) -> list[str]:
+    """Normalize a scalar or list payload value into a list of non-empty strings."""
+
     if value is None:
         return []
     if isinstance(value, str):
@@ -49,7 +53,9 @@ def _strings(value: Any) -> list[str]:
     return [str(value).strip()] if str(value).strip() else []
 
 
-def _number(value: Any) -> float | None:
+def number_value(value: Any) -> float | None:
+    """Extract the first numeric value from a payload field, or ``None``."""
+
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):
@@ -80,7 +86,7 @@ def reaction_candidates_from_payload(
             continue
         reactants = row.get("reactants", row.get("substrates", row.get("starting_materials")))
         products = row.get("products", row.get("product"))
-        confidence = _number(row.get("confidence"))
+        confidence = number_value(row.get("confidence"))
         normalized = {
             "source": source,
             "reactants": reactants,
@@ -97,13 +103,13 @@ def reaction_candidates_from_payload(
                 ReactionCandidate(
                     candidate_id=stable_id(source, normalized),
                     source=source,
-                    reactants=_compounds(reactants, "reactant"),
-                    products=_compounds(products, "product"),
-                    reagents=_strings(normalized["reagents"]),
-                    solvents=_strings(normalized["solvents"]),
-                    temperature_c=_number(normalized["temperature_c"]),
+                    reactants=compound_refs(reactants, "reactant"),
+                    products=compound_refs(products, "product"),
+                    reagents=string_list(normalized["reagents"]),
+                    solvents=string_list(normalized["solvents"]),
+                    temperature_c=number_value(normalized["temperature_c"]),
                     time=str(normalized["time"]).strip() if normalized["time"] else None,
-                    yield_pct=_bounded_percent(_number(normalized["yield_pct"])),
+                    yield_pct=bounded_percent(number_value(normalized["yield_pct"])),
                     evidence_ids=evidence,
                     confidence=confidence if confidence is not None else 0.5,
                 )
@@ -135,7 +141,7 @@ def structure_candidates_from_payload(
         if not smiles:
             continue
         label = row.get("compound_label") or row.get("label") or row.get("compound_id")
-        confidence = _number(row.get("confidence"))
+        confidence = number_value(row.get("confidence"))
         raw = {"label": label, "smiles": smiles, "evidence": evidence}
         try:
             result.append(
@@ -167,13 +173,19 @@ def load_external_structures(path: Path) -> list[StructureCandidate]:
     return result
 
 
-def _bounded_percent(value: float | None) -> float | None:
+def bounded_percent(value: float | None) -> float | None:
+    """Keep percentages inside ``[0, 100]``; out-of-range input becomes ``None``."""
+
     return value if value is None or 0 <= value <= 100 else None
 
 
 __all__ = [
+    "bounded_percent",
+    "compound_refs",
     "load_external_structures",
+    "number_value",
     "reaction_candidates_from_payload",
     "stable_id",
+    "string_list",
     "structure_candidates_from_payload",
 ]

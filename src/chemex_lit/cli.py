@@ -31,7 +31,7 @@ from chemex_lit.evaluation import evaluate_files
 from chemex_lit.errors import ChemExError
 from chemex_lit.models import ReactionRecord, RunSummary, normalize_mode
 from chemex_lit.review import apply_corrections, generate_review
-from chemex_lit.store import ArtifactStore
+from chemex_lit.store import ArtifactStore, atomic_write_text
 
 
 class CliContext(TypedDict):
@@ -236,7 +236,7 @@ def review_command(run_dir: Path) -> None:
 
     store = ArtifactStore(run_dir)
     records = store.read_models("records.jsonl", ReactionRecord)
-    output = generate_review(records, store.root / "review.html")
+    output = generate_review(records, store)
     click.echo(str(output))
 
 
@@ -267,9 +267,13 @@ def review_apply(run_dir: Path, corrections: Path, confirmed_by: str) -> None:
 def evaluate_command(run_dir: Path, gold: Path, output: Path | None) -> None:
     """Evaluate records against a frozen JSONL benchmark."""
 
+    store = ArtifactStore(run_dir)
     predicted = run_dir / "records.jsonl"
-    report_path = output or run_dir / "evaluation.json"
-    report = evaluate_files(predicted, gold, report_path)
+    if output is None:
+        report = evaluate_files(predicted, gold, store)
+    else:
+        report = evaluate_files(predicted, gold)
+        atomic_write_text(output, json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     click.echo(json.dumps(report, ensure_ascii=False, indent=2))
 
 

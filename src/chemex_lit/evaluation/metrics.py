@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from chemex_lit.evaluation.load import load_jsonl
 from chemex_lit.evaluation.match import match_records
+from chemex_lit.store import ArtifactStore
 
 
 def evaluate_records(
@@ -43,8 +43,12 @@ def evaluate_records(
     }
 
 
-def evaluate_files(predicted_path: Path, gold_path: Path, output: Path | None = None) -> dict[str, Any]:
+def evaluate_files(
+    predicted_path: Path,
+    gold_path: Path,
+    store: ArtifactStore | None = None,
+) -> dict[str, Any]:
     report = evaluate_records(load_jsonl(predicted_path), load_jsonl(gold_path))
-    if output is not None:
-        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if store is not None:
+        store.write_json("evaluation.json", report)
     return report

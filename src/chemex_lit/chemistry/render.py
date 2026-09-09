@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import io
 
 
-def render_smiles(smiles: str, output: Path, size: tuple[int, int] = (360, 240)) -> bool:
+def render_smiles(smiles: str, size: tuple[int, int] = (360, 240)) -> bytes | None:
+    """Render one SMILES to PNG bytes, or ``None`` when RDKit cannot parse it."""
+
     try:
         from rdkit import Chem
         from rdkit.Chem import Draw  # pyright: ignore[reportAttributeAccessIssue]
 
         molecule = Chem.MolFromSmiles(smiles)
         if molecule is None:
-            return False
-        output.parent.mkdir(parents=True, exist_ok=True)
-        Draw.MolToFile(molecule, str(output), size=size)
-        return output.is_file()
+            return None
+        image = Draw.MolToImage(molecule, size=size)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
     except (ImportError, ValueError, OSError):
-        return False
+        return None

@@ -17,12 +17,10 @@ from chemex_lit.chemistry import ValidationOutcome, Validator
 from chemex_lit.config import AppConfig, ModelSpec, config_fingerprint
 from chemex_lit.errors import ArtifactError, ChemExError, utc_now
 from chemex_lit.extraction import (
-    _bounded_percent,
-    _compounds,
-    _number,
-    _strings,
     load_external_structures,
+    reaction_candidates_from_payload,
     stable_id,
+    structure_candidates_from_payload,
 )
 from chemex_lit.extraction.tasks import (
     build_adjudication_tasks,
@@ -692,7 +690,7 @@ class Pipeline:
             "review.jsonl",
             [item for item in records if item.review_status == "needs_review"],
         )
-        generate_review(records, store.root / "review.html")
+        generate_review(records, store)
         status = self._status(records)
         store.mark_stage(
             "finalization",
@@ -1116,38 +1114,20 @@ def _parse_candidate_output(
         f"{task.kind}-submission",
         {"task_id": task.task_id, "output": output},
     )
+    evidence_ids = list(task.evidence_ids)
+    candidate: ReactionCandidate | StructureCandidate
     if task.kind in {"text", "table"}:
-        reactants = output.get("reactants", output.get("substrates", output.get("starting_materials")))
-        products = output.get("products", output.get("product"))
-        confidence = _number(output.get("confidence"))
-        return ReactionCandidate(
-            candidate_id=candidate_id,
-            source="text" if task.kind == "text" else "table",
-            reactants=_compounds(reactants, "reactant"),
-            products=_compounds(products, "product"),
-            reagents=_strings(output.get("reagents", output.get("catalysts"))),
-            solvents=_strings(output.get("solvents", output.get("solvent"))),
-            temperature_c=_number(output.get("temperature_c", output.get("temperature"))),
-            time=str(output.get("time", output.get("reaction_time"))).strip()
-            if output.get("time", output.get("reaction_time"))
-            else None,
-            yield_pct=_bounded_percent(_number(output.get("yield_pct", output.get("yield")))),
-            evidence_ids=list(task.evidence_ids),
-            confidence=confidence if confidence is not None else 0.5,
-        )
-
-    smiles = output.get("smiles") or output.get("canonical_smiles")
-    if smiles is None or not str(smiles).strip():
-        raise ValueError("smiles must not be empty")
-    label = output.get("compound_label") or output.get("label") or output.get("compound_id")
-    confidence = _number(output.get("confidence"))
-    return StructureCandidate(
-        candidate_id=candidate_id,
-        compound_label=str(label).strip() if label is not None and str(label).strip() else None,
-        smiles=str(smiles).strip(),
-        evidence_ids=list(task.evidence_ids),
-        confidence=confidence if confidence is not None else 0.5,
-    )
+        source: Literal["text", "table"] = "text" if task.kind == "text" else "table"
+        reactions = reaction_candidates_from_payload([output], source, evidence_ids)
+        if len(reactions) != 1:
+            raise ValueError("submission row must normalize to exactly one reaction candidate")
+        candidate = reactions[0]
+    else:
+        structures = structure_candidates_from_payload([output], evidence_ids)
+        if not structures:
+            raise ValueError("smiles must not be empty")
+        candidate = structures[0]
+    return candidate.model_copy(update={"candidate_id": candidate_id, "evidence_ids": evidence_ids})
 
 
 def _entry_outputs(entry: dict[str, Any], task_id_value: str) -> list[dict[str, Any]]:
