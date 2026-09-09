@@ -12,6 +12,20 @@ and produce structured records with evidence provenance. The skill orchestrates
 the `chemex-lit` CLI. It does not contain extraction prompts, chemistry logic,
 or LLM calls. The CLI and its Core library own all chemistry.
 
+## Calling the CLI
+
+Prefer the installed console script. If it is not on PATH, fall back to the
+Python module; both accept identical arguments.
+
+```text
+chemex-lit <command> ...
+python -m chemex_lit.cli <command> ...
+```
+
+Always pass `--json` on machine-facing commands and parse the JSON output.
+Never parse human-readable text such as `Awaiting tasks: 2`; depend only on
+JSON fields (`status`, `awaiting`, `run_dir`, `tasks`).
+
 ## Mode selection
 
 Three modes control who fulfills each extraction channel.
@@ -19,13 +33,43 @@ Three modes control who fulfills each extraction channel.
 | Mode | Text | Table | Structure | Adjudication | When to pick |
 | --- | --- | --- | --- | --- | --- |
 | auto | CLI model | CLI vision model | CLI vision model | CLI reasoning model | CI, unattended batch, reproducible runs, or when all API keys are set |
-| semi | CLI model | CLI vision model | You (human or agent) submit structures | CLI reasoning model | You want to supply or verify structures yourself |
-| agent | You submit all | You submit all | You submit all | You submit decisions | No CLI model keys, or you want full generative control |
+| semi | CLI model | CLI vision model | Host agent submits structures | CLI reasoning model | You want to supply or verify structures yourself |
+| agent | Host agent | Host agent | Host agent | Host agent | Full host-agent control |
 
-In auto mode the CLI needs all four API keys (`MINERU_API_KEY`,
-`CHEMEX_TEXT_API_KEY`, `CHEMEX_VISION_API_KEY`, `CHEMEX_REASONING_API_KEY`).
-In semi mode `CHEMEX_REASONING_API_KEY` is optional if you handle
-adjudication. In agent mode only `MINERU_API_KEY` is required.
+> Deprecated aliases: `human-ocsr-agent` maps to `semi` and `auto-agent` maps
+> to `agent`. The CLI accepts both alias values for `--mode` and stores the
+> canonical mode in the run manifest.
+
+Credential requirements by mode:
+
+- `auto`: `MINERU_API_KEY`, `CHEMEX_TEXT_API_KEY`, `CHEMEX_VISION_API_KEY`,
+  and (for `--adjudicate`) `CHEMEX_REASONING_API_KEY`.
+- `semi`: the same keys as `auto`; structures are submitted by the host agent.
+- `agent`: only `MINERU_API_KEY`. Host credentials are managed by the host
+  application.
+
+Credentials resolve from the process environment first, then from the user
+auth store. Hosts may store them with `chemex-lit auth set NAME --stdin`
+(and verify with `chemex-lit auth test NAME`) instead of shell exports;
+see the cli-contract reference.
+
+Verify with `check --json` before starting.
+
+```text
+chemex-lit check --mode agent --json
+```
+
+```json
+{
+  "ok": true,
+  "mode": "agent",
+  "profile": null,
+  "checks": [
+    {"name": "RDKit", "status": "ok"},
+    {"name": "MinerU key", "status": "ok"}
+  ]
+}
+```
 
 ## Golden workflow
 
@@ -35,43 +79,63 @@ resume, review.
 ### 1. Run
 
 ```
-chemex-lit run paper.pdf --mode <auto|semi|agent>
+chemex-lit run paper.pdf --mode auto --json
 ```
 
 Optional flags:
 
-- `--structures file.jsonl` Supply structure candidates up front (semi/auto).
+- `--structures file.jsonl` Supply structure candidates up front.
 - `--adjudicate` Run the adjudication step.
-- `--json` Emit structured output (status, run directory path).
+- `--json` Emit the run summary as JSON.
 
-The CLI prints a run directory path, for example
-`outputs/paper-a1b2c3d4/`.
+The JSON summary contains the run directory:
+
+```json
+{
+  "run_id": "paper-a1b2c3d4",
+  "status": "awaiting_input",
+  "records_count": 0,
+  "review_count": 0,
+  "run_dir": "/work/extraction/outputs/paper-a1b2c3d4",
+  "stages": {"document": "complete", "extraction": "awaiting"},
+  "awaiting": ["st-0001", "st-0002"],
+  "tasks": {
+    "structure": {"awaiting": 2, "fulfilled": 0, "awaiting_task_ids": ["st-0001", "st-0002"]}
+  }
+}
+```
+
+Exit code 4 means the run finished as `completed_empty` (zero records found);
+that is a normal outcome, not an error.
 
 ### 2. Check status
 
 ```
-chemex-lit status outputs/paper-a1b2c3d4/
+chemex-lit status /work/extraction/outputs/paper-a1b2c3d4 --json
 ```
 
-The status tells you where the pipeline is:
+The `status` field tells you where the pipeline is:
 
 - `running` Core is processing.
 - `awaiting_input` The pipeline is paused, waiting for external task
-  submissions. This happens in semi mode (structure tasks) and agent mode
-  (all tasks).
+  submissions (semi: structure tasks; agent: all generative tasks).
 - `ready` All external tasks submitted; next resume will continue.
 - `success` All records extracted and finalized.
 - `completed_empty` Pipeline finished with zero records.
-- `partial` Some tasks failed or were skipped.
+- `partial` Some records need review.
 - `failed` A non-recoverable error occurred.
 - `cancelled` Explicitly cancelled.
 
+The same JSON shape as the run summary is returned; `awaiting` lists the
+exact task IDs that still need submissions.
+
 ### 3. Read task files
 
-When status is `awaiting_input`, look inside the run directory:
+When status is `awaiting_input`, read the task file inside the run
+directory. Paths in protocol files and JSON always use forward slashes:
 
 ```
-outputs/paper-a1b2c3d4/tasks/extraction.jsonl
+<run_dir>/tasks/extraction.jsonl
 ```
 
 Each line is an `ExtractionTask`:
@@ -91,6 +155,9 @@ Each line is an `ExtractionTask`:
   "status": "awaiting"
 }
 ```
+
+Asset and image paths are relative to `run_dir`; join them with the local
+path library (for example `Path(run_dir) / asset_path`) before reading.
 
 The task tells you exactly what to produce: which evidence to use, the
 expected output schema, any inline text, and image paths for vision tasks.
@@ -113,7 +180,26 @@ Collect your outputs into a submission JSONL file. Each line is a
   "task_id": "st-0001",
   "producer": {
     "kind": "host_agent",
-    "client": {"name": "codex", "version": "0.2.0"}
+    "client_name": "codex",
+    "client_version": "1.0.0",
+    "model": "gpt-5",
+    "policy": "chemex-lit-default"
+  },
+  "outputs": [
+    {"compound_label": "7", "smiles": "CCO", "confidence": 0.9}
+  ]
+}
+```
+
+Reaction outputs from text or table tasks use the same envelope:
+
+```json
+{
+  "task_id": "txt-0001",
+  "producer": {
+    "kind": "host_agent",
+    "client_name": "codex",
+    "client_version": "1.0.0"
   },
   "outputs": [
     {
@@ -136,28 +222,27 @@ submissions are allowed. Unsubmitted tasks remain `awaiting`.
 ### 5. Submit
 
 ```
-chemex-lit submit outputs/paper-a1b2c3d4/ my_submission.jsonl
+chemex-lit submit /work/extraction/outputs/paper-a1b2c3d4 my_submission.jsonl --json
 ```
 
 The CLI validates each line, computes `candidate_id` values, writes
 provenance, and marks tasks as fulfilled. When all tasks for the current
-stage are fulfilled the status changes to `ready`.
+stage are fulfilled the returned status changes to `ready`.
 
 ### 6. Resume
 
 ```
-chemex-lit resume outputs/paper-a1b2c3d4/
+chemex-lit resume /work/extraction/outputs/paper-a1b2c3d4 --json
 ```
 
-Resume advances the pipeline to the next stage. In semi mode this runs
-adjudication. In agent mode the next set of tasks (adjudication) becomes
-available. Repeat the fulfill-submit-resume cycle until the run reaches
-a terminal status.
+Resume advances the pipeline to the next stage. Repeat the
+fulfill-submit-resume cycle until the run reaches a terminal status
+(`success`, `completed_empty`, `partial`, or `failed`).
 
 ### 7. Review
 
 ```
-chemex-lit review outputs/paper-a1b2c3d4/
+chemex-lit review /work/extraction/outputs/paper-a1b2c3d4
 ```
 
 Open the review output to see which records need attention (marked
@@ -181,7 +266,7 @@ chemistry and the CLI owns persistence.
 - **Evidence IDs must come from the task.** Use the `evidence_ids` the
   Core provides. Do not invent or reuse evidence from other runs.
 - **Fill every task or report which remain.** After submission, check
-  status. If tasks still show `awaiting`, produce more submissions.
+  status. If `awaiting` is non-empty, produce more submissions.
 - **Adjudication decisions are `accept` or `keep_review` only.**
   There is no `reject` in the API. If a record warrants rejection, that
   is a human review action outside the skill scope.
@@ -194,10 +279,8 @@ chemistry and the CLI owns persistence.
 
 ## Reference documents
 
-- [modes.md](references/modes.md) Mode comparison, state machine,
-  awaiting_input semantics.
-- [contracts.md](references/contracts.md) Full CLI contract, artifact
-  layout, environment variables.
+- [cli-contract.md](references/cli-contract.md) Full CLI contract: commands,
+  JSON shapes, path rules, environment variables, artifact layout.
 - [submission-format.md](references/submission-format.md) Schema reference
   for task submissions.
 - [review-policy.md](references/review-policy.md) How to handle the

@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import os
 import re
 import time
 import zipfile
@@ -15,7 +14,8 @@ from typing import Any
 import httpx
 
 from chemex_lit.config import MinerUConfig
-from chemex_lit.errors import ConfigurationError, ExternalServiceError
+from chemex_lit.credentials import credential_value
+from chemex_lit.errors import ExternalServiceError
 from chemex_lit.models import DocumentBundle, EvidenceRef
 
 
@@ -29,11 +29,7 @@ class MinerUAdapter:
     def convert(self, pdf_path: Path, work_dir: Path) -> DocumentBundle:
         if not pdf_path.is_file():
             raise FileNotFoundError(f"PDF not found: {pdf_path}")
-        api_key = os.environ.get(self.config.api_key_env, "").strip()
-        if not api_key:
-            raise ConfigurationError(
-                f"Environment variable {self.config.api_key_env} is required for MinerU"
-            )
+        api_key = credential_value(self.config.api_key_env, what="MinerU")
 
         target = work_dir / "mineru"
         target.mkdir(parents=True, exist_ok=True)
@@ -194,6 +190,9 @@ class MinerUAdapter:
             return None
         if len(content_lists) == 1:
             return content_lists[0]
+        v2_matches = [path for path in content_lists if path.name.endswith("_content_list_v2.json")]
+        if len(v2_matches) == 1:
+            return v2_matches[0]
         stem_matches = [path for path in content_lists if markdown_path.stem in path.name]
         if len(stem_matches) == 1:
             return stem_matches[0]

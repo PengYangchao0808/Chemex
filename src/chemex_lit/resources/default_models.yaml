@@ -1,0 +1,37 @@
+# Packaged sample profiles. Copy to ~/.config/chemex-lit/models.yaml and edit.
+#
+# Secrets NEVER live in this file: every entry references an environment
+# variable name via `api_key_env`, and the value is read from os.environ at
+# call time. Optional fields (timeout, temperature, max_tokens, retries,
+# response_format, extra_payload) may be omitted to inherit defaults from
+# src/chemex_lit/resources/default_config.yaml.
+version: 1
+
+profiles:
+  deepseek-glm:
+    text:
+      base_url: https://api.deepseek.com/v1
+      model: deepseek-v4-flash
+      api_key_env: DEEPSEEK_API_KEY
+    vision:
+      base_url: https://open.bigmodel.cn/api/paas/v4
+      model: glm-4v-plus
+      api_key_env: GLM_API_KEY
+    reasoning:
+      base_url: https://api.deepseek.com/v1
+      model: deepseek-v4-pro
+      api_key_env: DEEPSEEK_API_KEY
+
+  openai:
+    text:
+      base_url: https://api.openai.com/v1
+      model: gpt-4o
+      api_key_env: OPENAI_API_KEY
+    vision:
+      base_url: https://api.openai.com/v1
+      model: gpt-4o
+      api_key_env: OPENAI_API_KEY
+    reasoning:
+      base_url: https://api.openai.com/v1
+      model: gpt-4o
+      api_key_env: OPENAI_API_KEY

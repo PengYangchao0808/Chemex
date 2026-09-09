@@ -3,14 +3,63 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal, cast, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from chemex_lit.errors import ChemExError
+
 
 RunMode = Literal["auto", "semi", "agent"]
+RunStatus = Literal[
+    "running",
+    "awaiting_input",
+    "ready",
+    "success",
+    "completed_empty",
+    "partial",
+    "failed",
+    "cancelled",
+]
 ProducerKind = Literal["cli_model", "human", "host_agent"]
 Channel = Literal["text", "table", "structure", "adjudication"]
+
+MODE_ALIASES: Final[dict[str, RunMode]] = {
+    "human-ocsr-agent": "semi",
+    "auto-agent": "agent",
+}
+"""Deprecated v0 mode names mapped to their canonical v1 replacements.
+
+Aliases are accepted at input boundaries only (CLI flags, legacy manifests);
+internal flow and persisted manifests always carry the canonical value.
+"""
+
+_CANONICAL_MODES: Final[tuple[str, ...]] = get_args(RunMode)
+
+
+def normalize_mode(value: str) -> RunMode:
+    """Return the canonical :data:`RunMode` for ``value``.
+
+    Deprecated aliases (``human-ocsr-agent``, ``auto-agent``) are converted to
+    their canonical replacements; canonical inputs pass through unchanged.
+
+    Args:
+        value: Raw mode string from a CLI flag or a stored manifest.
+
+    Returns:
+        The canonical run mode.
+
+    Raises:
+        ChemExError: If ``value`` is neither canonical nor a known alias.
+    """
+
+    aliased = MODE_ALIASES.get(value)
+    if aliased is not None:
+        return aliased
+    if value in _CANONICAL_MODES:
+        return cast(RunMode, value)
+    valid = ", ".join((*_CANONICAL_MODES, *sorted(MODE_ALIASES)))
+    raise ChemExError(f"Unknown mode: {value!r}. Valid modes: {valid}.")
 
 
 class StrictModel(BaseModel):
@@ -25,6 +74,8 @@ class ProducerSpec(StrictModel):
     kind: ProducerKind
     model: str | None = None
     provider: str | None = None
+    policy: str | None = None
+    fallbacks: list[str] | None = None
 
 
 class ProducerPlan(StrictModel):
@@ -76,6 +127,9 @@ class SubmissionProducer(StrictModel):
     kind: Literal["human", "host_agent"]
     client_name: str | None = None
     client_version: str | None = None
+    model: str | None = None
+    policy: str | None = None
+    attempt: int | None = Field(default=None, ge=1)
 
 
 class CandidateSubmission(StrictModel):
@@ -116,6 +170,8 @@ class ProvenanceEntry(StrictModel):
     producer_kind: ProducerKind
     provider: str | None = None
     model: str | None = None
+    policy: str | None = None
+    attempt: int | None = Field(default=None, ge=1)
     prompt_version: str | None = None
     instruction_version: str | None = None
     input_hash: str | None = None
@@ -235,22 +291,27 @@ class ReactionRecord(StrictModel):
     issues: list[ValidationIssue] = Field(default_factory=list)
 
 
+class TaskChannelStatus(StrictModel):
+    """Await/fulfilled counts for one external task kind."""
+
+    awaiting: int = Field(default=0, ge=0)
+    fulfilled: int = Field(default=0, ge=0)
+    awaiting_task_ids: list[str] = Field(default_factory=list)
+
+
 class RunSummary(StrictModel):
-    """Small, JSON-safe summary returned by the pipeline and CLI."""
+    """Small, JSON-safe summary returned by the pipeline and CLI.
+
+    This model is the machine-readable envelope shared by the ``run``,
+    ``resume``, ``status``, ``cancel``, and ``submit --json`` commands.
+    All paths (``run_dir``) use forward slashes regardless of platform.
+    """
 
     run_id: str
-    status: Literal[
-        "running",
-        "awaiting_input",
-        "ready",
-        "success",
-        "completed_empty",
-        "partial",
-        "failed",
-        "cancelled",
-    ]
+    status: RunStatus
     records_count: int = Field(ge=0)
     review_count: int = Field(ge=0)
-    output_dir: str
+    run_dir: str
     stages: dict[str, str] = Field(default_factory=dict)
     awaiting: list[str] = Field(default_factory=list)
+    tasks: dict[str, TaskChannelStatus] = Field(default_factory=dict)

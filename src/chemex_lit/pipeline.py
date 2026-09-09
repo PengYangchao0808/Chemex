@@ -49,6 +49,7 @@ from chemex_lit.models import (
     StructureCandidate,
     SubmissionProducer,
     TaskAssets,
+    TaskChannelStatus,
     ValidationIssue,
 )
 from chemex_lit.review import generate_review
@@ -76,7 +77,15 @@ def build_producer_plan(
     config: AppConfig,
     has_external_structures: bool,
 ) -> ProducerPlan:
-    """Build the per-run producer plan declared in the manifest."""
+    """Build the per-run producer plan declared in the manifest.
+
+    Channel ownership by mode:
+
+    - ``auto``: every channel is fulfilled by CLI-configured models.
+    - ``semi``: CLI models cover text/table/adjudication; structures are
+      externalized to the host agent.
+    - ``agent``: every channel is externalized to the host agent.
+    """
 
     del has_external_structures
     reasoning_model, _ = config.models.reasoning_spec()
@@ -91,14 +100,28 @@ def build_producer_plan(
         return ProducerPlan(
             text=_cli_spec(config.models.text),
             table=_cli_spec(config.models.vision),
-            structure=ProducerSpec(kind="human"),
+            structure=_host_spec(config, "structure"),
             adjudication=_cli_spec(reasoning_model),
         )
     return ProducerPlan(
-        text=ProducerSpec(kind="host_agent"),
-        table=ProducerSpec(kind="host_agent"),
-        structure=ProducerSpec(kind="host_agent"),
-        adjudication=ProducerSpec(kind="host_agent"),
+        text=_host_spec(config, "text"),
+        table=_host_spec(config, "table"),
+        structure=_host_spec(config, "structure"),
+        adjudication=_host_spec(config, "adjudication"),
+    )
+
+
+def _host_spec(config: AppConfig, channel: Channel) -> ProducerSpec:
+    """Build a host producer declaration from the active profile policy."""
+
+    route = config.host_routes.get(channel)
+    if route is None:
+        return ProducerSpec(kind="host_agent")
+    return ProducerSpec(
+        kind="host_agent",
+        model=route.model,
+        policy=route.policy,
+        fallbacks=list(route.fallbacks) or None,
     )
 
 
@@ -306,6 +329,8 @@ class Pipeline:
             },
             mode=request.mode,
             producer_plan=plan.model_dump(mode="json"),
+            profile=self.config.profile,
+            models_source=self.config.models_source,
         )
 
         try:
@@ -409,7 +434,7 @@ class Pipeline:
         if plan.structure.kind != "cli_model":
             external_tasks.extend(structure_tasks)
 
-        if request.external_structures and plan.structure.kind == "human":
+        if request.external_structures:
             shortcut = _external_structure_submissions(request.external_structures, structure_tasks)
             if shortcut:
                 apply_submissions(store, document, shortcut, structure_tasks, state)
@@ -855,22 +880,37 @@ class Pipeline:
         result: list[ProvenanceEntry] = []
         entry = _task_entries(state).get(task.task_id, {})
         submission_producer = None
-        if producer.kind != "cli_model" and entry.get("producer"):
+        if entry.get("producer"):
             submission_producer = SubmissionProducer.model_validate(entry["producer"])
+        producer_kind = (
+            submission_producer.kind if submission_producer is not None else producer.kind
+        )
         for candidate in candidates:
             result.append(
                 ProvenanceEntry(
                     candidate_id=candidate.candidate_id,
                     task_id=task.task_id,
                     channel=task.kind,
-                    producer_kind=producer.kind,
-                    provider=model.base_url if producer.kind == "cli_model" else None,
-                    model=model.model if producer.kind == "cli_model" else None,
+                    producer_kind=producer_kind,
+                    provider=model.base_url if producer_kind == "cli_model" else None,
+                    model=(
+                        model.model
+                        if producer_kind == "cli_model"
+                        else submission_producer.model
+                        if submission_producer and submission_producer.model
+                        else producer.model
+                    ),
+                    policy=(
+                        submission_producer.policy
+                        if submission_producer and submission_producer.policy
+                        else producer.policy
+                    ),
+                    attempt=submission_producer.attempt if submission_producer else None,
                     prompt_version=_prompt_version(self.prompts, task.kind),
                     instruction_version=task.instruction_version,
                     input_hash=input_hash,
                     submission_hash=str(entry.get("submission_hash"))
-                    if producer.kind != "cli_model" and entry.get("submission_hash")
+                    if submission_producer is not None and entry.get("submission_hash")
                     else None,
                     client_name=submission_producer.client_name if submission_producer else None,
                     client_version=submission_producer.client_version if submission_producer else None,
@@ -923,6 +963,9 @@ class Pipeline:
                     submission_hash=str(entry["submission_hash"]),
                     client_name=producer.client_name,
                     client_version=producer.client_version,
+                    model=producer.model,
+                    policy=producer.policy,
+                    attempt=producer.attempt,
                     created_at=_utc_now(),
                 )
             )
@@ -943,7 +986,8 @@ class Pipeline:
         ],
     ) -> RunSummary:
         manifest = store.manifest()
-        awaiting = _awaiting_task_ids(_read_task_state(store))
+        state = _read_task_state(store)
+        awaiting = awaiting_task_ids(state)
         records_count = 0
         review_count = 0
         if status != "awaiting_input" and (store.root / _FINAL_RECORDS_OUTPUT).is_file():
@@ -955,12 +999,13 @@ class Pipeline:
             status=status,
             records_count=records_count,
             review_count=review_count,
-            output_dir=str(store.root),
+            run_dir=store.root.as_posix(),
             stages={
                 name: str(data.get("status", "unknown"))
                 for name, data in manifest.get("stages", {}).items()
             },
             awaiting=awaiting,
+            tasks=task_channel_counts(state),
         )
 
     @staticmethod
@@ -1000,15 +1045,46 @@ def _task_entries(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _set_submit_status(store: ArtifactStore, state: dict[str, Any]) -> None:
-    store.set_status("awaiting_input" if _awaiting_task_ids(state) else "ready")
+    store.set_status("awaiting_input" if awaiting_task_ids(state) else "ready")
 
 
-def _awaiting_task_ids(state: dict[str, Any]) -> list[str]:
+def awaiting_task_ids(state: dict[str, Any]) -> list[str]:
+    """Return sorted IDs of all tasks still awaiting a submission."""
     return sorted(
         task_id
         for task_id, entry in _task_entries(state).items()
         if isinstance(entry, dict) and str(entry.get("status", "awaiting")) == "awaiting"
     )
+
+
+_MAX_LISTED_TASK_IDS = 50
+
+
+def task_channel_counts(
+    state: dict[str, Any],
+    *,
+    max_listed_ids: int = _MAX_LISTED_TASK_IDS,
+) -> dict[str, TaskChannelStatus]:
+    """Summarize awaiting/fulfilled counts per external task kind.
+
+    Shared by the pipeline summary and the application service so the
+    machine-readable envelope stays identical across commands.
+    """
+
+    counts: dict[str, TaskChannelStatus] = {}
+    for entry_id, entry in _task_entries(state).items():
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("kind", "unknown"))
+        status = str(entry.get("status", "awaiting"))
+        bucket = counts.setdefault(kind, TaskChannelStatus())
+        if status == "fulfilled":
+            bucket.fulfilled += 1
+            continue
+        bucket.awaiting += 1
+        if len(bucket.awaiting_task_ids) < max_listed_ids:
+            bucket.awaiting_task_ids.append(entry_id)
+    return counts
 
 
 def _submission_hash(payload: dict[str, Any]) -> str:

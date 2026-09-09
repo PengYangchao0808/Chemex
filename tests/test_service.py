@@ -273,12 +273,12 @@ def test_service_status_cancel_and_resume_after_cancel(
     assert paused.status == "awaiting_input"
 
     status = service.status(run_dir)
-    assert status["tasks"]["structure"]["awaiting"] == 1
-    assert status["tasks"]["structure"]["awaiting_task_ids"]
+    assert status.tasks["structure"].awaiting == 1
+    assert status.tasks["structure"].awaiting_task_ids
 
     service.cancel(run_dir)
     cancelled = service.status(run_dir)
-    assert cancelled["status"] == "cancelled"
+    assert cancelled.status == "cancelled"
 
     with pytest.raises(ChemExError, match="Cancelled runs cannot be resumed"):
         service.resume(run_dir)

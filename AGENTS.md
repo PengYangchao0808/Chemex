@@ -30,7 +30,9 @@ src/chemex_lit/
 - Validators report issues; they never perform generative repair.
 - The assembler is deterministic. The adjudicator cannot rewrite chemistry.
 - Runtime resources use `importlib.resources`; never rely on repository-root paths.
-- Credentials come from environment variables only.
+- Credentials resolve from the process environment first, then the user
+  credential store (`auth.json`, managed by `chemex-lit auth`); they never
+  live in repository files or `models.yaml`.
 - Every persisted write goes through `ArtifactStore`.
 - Empty extraction is `completed_empty`, never `success`.
 

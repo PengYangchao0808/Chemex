@@ -8,7 +8,7 @@ import pytest
 
 import chemex_lit.cli as cli_module
 from chemex_lit.cli import main
-from chemex_lit.models import RunSummary
+from chemex_lit.models import RunSummary, TaskChannelStatus
 
 
 class FakeService:
@@ -27,14 +27,23 @@ class FakeService:
         adjudicate: bool = False,
     ) -> RunSummary:
         del pdf_path, external_structures, adjudicate
+        if mode == "semi":
+            return RunSummary(
+                run_id="run-1",
+                status="awaiting_input",
+                records_count=0,
+                review_count=0,
+                run_dir="outputs/run-1",
+                stages={"extraction": "awaiting"},
+                awaiting=["st-123", "st-456"],
+                tasks={"structure": TaskChannelStatus(awaiting=2)},
+            )
         return RunSummary(
             run_id="run-1",
-            status="awaiting_input" if mode == "semi" else "success",
+            status="success",
             records_count=0,
             review_count=0,
-            output_dir=str(output_dir or Path("outputs/run-1")),
-            stages={"extraction": "awaiting"} if mode == "semi" else {},
-            awaiting=["st-123", "st-456"] if mode == "semi" else [],
+            run_dir="outputs/run-1",
         )
 
     def resume(self, run_dir: Path) -> RunSummary:
@@ -43,7 +52,7 @@ class FakeService:
             status="success",
             records_count=1,
             review_count=0,
-            output_dir=str(run_dir),
+            run_dir=str(run_dir),
             stages={"finalization": "complete"},
         )
 
@@ -66,19 +75,17 @@ class FakeService:
             ],
         }
 
-    def status(self, run_dir: Path) -> dict[str, object]:
-        return {
-            "run_id": "run-1",
-            "status": "cancelled" if run_dir in self.cancelled else "awaiting_input",
-            "stages": {"extraction": {"status": "awaiting", "detail": "awaiting 1 task(s)"}},
-            "tasks": {
-                "structure": {
-                    "awaiting": 1,
-                    "fulfilled": 0,
-                    "awaiting_task_ids": ["st-123"],
-                }
-            },
-        }
+    def status(self, run_dir: Path) -> RunSummary:
+        cancelled = run_dir in self.cancelled
+        return RunSummary(
+            run_id="run-1",
+            status="cancelled" if cancelled else "awaiting_input",
+            records_count=0,
+            review_count=0,
+            run_dir=str(run_dir),
+            stages={"extraction": "awaiting"},
+            tasks={"structure": TaskChannelStatus(awaiting=1, awaiting_task_ids=["st-123"])},
+        )
 
     def cancel(self, run_dir: Path) -> None:
         self.cancelled.append(run_dir)

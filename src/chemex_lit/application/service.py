@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, cast, get_args
 
 from pydantic import BaseModel, ValidationError
 
@@ -24,15 +24,20 @@ from chemex_lit.models import (
     AdjudicationDecision,
     CandidateSubmission,
     ExtractionTask,
+    ReactionRecord,
     RunMode,
     RunRequest,
+    RunStatus,
     RunSummary,
+    normalize_mode,
 )
 from chemex_lit.pipeline import (
     Pipeline,
     apply_decisions,
     apply_force_invalidation,
     apply_submissions,
+    awaiting_task_ids,
+    task_channel_counts,
 )
 from chemex_lit.store import ArtifactStore, sha256_file
 
@@ -172,7 +177,7 @@ class ChemExService:
             for path, file_hash, _ in parsed_files:
                 bucket[file_hash] = {
                     "file_name": path.name,
-                    "file_path": str(path.resolve()),
+                    "file_path": path.resolve().as_posix(),
                     "sha256": file_hash,
                     "submitted_at": submitted_at,
                 }
@@ -198,32 +203,36 @@ class ChemExService:
             "duplicates": duplicate_count,
         }
 
-    def status(self, run_dir: Path) -> dict[str, Any]:
-        """Return manifest state plus a task summary."""
+    def status(self, run_dir: Path) -> RunSummary:
+        """Return the machine-readable run summary shared by all commands."""
 
         store = ArtifactStore(run_dir)
         manifest = store.manifest()
         state = _read_state(store)
-        task_counts: dict[str, dict[str, Any]] = {}
-        for task_id, entry in _task_entries(state).items():
-            if not isinstance(entry, dict):
-                continue
-            kind = str(entry.get("kind", "unknown"))
-            status = str(entry.get("status", "awaiting"))
-            bucket = task_counts.setdefault(
-                kind,
-                {"awaiting": 0, "fulfilled": 0, "awaiting_task_ids": []},
-            )
-            if status == "fulfilled":
-                bucket["fulfilled"] += 1
-                continue
-            bucket["awaiting"] += 1
-            awaiting_ids = bucket["awaiting_task_ids"]
-            if isinstance(awaiting_ids, list) and len(awaiting_ids) < 50:
-                awaiting_ids.append(task_id)
-        result = dict(manifest)
-        result["tasks"] = task_counts
-        return result
+        records_count = 0
+        review_count = 0
+        if (store.root / "records.jsonl").is_file():
+            records = store.read_models("records.jsonl", ReactionRecord)
+            records_count = len(records)
+            review_count = sum(item.review_status == "needs_review" for item in records)
+        stages = {
+            name: str(data.get("status", "unknown"))
+            for name, data in manifest.get("stages", {}).items()
+            if isinstance(data, dict)
+        }
+        raw_status = manifest.get("status", "running")
+        if raw_status not in get_args(RunStatus):
+            raise ArtifactError(f"Run manifest has an invalid status {raw_status!r}")
+        return RunSummary(
+            run_id=str(manifest.get("run_id", "")),
+            status=cast(RunStatus, raw_status),
+            records_count=records_count,
+            review_count=review_count,
+            run_dir=store.root.as_posix(),
+            stages=stages,
+            awaiting=awaiting_task_ids(state),
+            tasks=task_channel_counts(state),
+        )
 
     def cancel(self, run_dir: Path) -> None:
         """Cancel an in-flight run."""
@@ -311,12 +320,23 @@ def _read_jsonl_models(path: Path, model: type[_T]) -> list[_T]:
 
 
 def _manifest_mode(manifest: dict[str, Any]) -> RunMode:
-    """Extract and validate the run mode from a manifest."""
+    """Extract and normalize the run mode from a manifest.
 
-    mode = manifest.get("mode")
-    if mode not in {"auto", "semi", "agent"}:
+    Legacy manifests may still carry deprecated alias values; they are
+    converted to the canonical mode so resume keeps working across the
+    v1 mode convergence.
+    """
+
+    raw = manifest.get("mode")
+    if not isinstance(raw, str):
         raise ArtifactError("Run manifest is missing a valid mode")
-    return mode
+    try:
+        return normalize_mode(raw)
+    except ChemExError as exc:
+        raise ArtifactError(
+            f"Run manifest has an invalid mode {raw!r}; expected auto, semi, or agent"
+            " (legacy aliases human-ocsr-agent and auto-agent are accepted)"
+        ) from exc
 
 
 def _manifest_adjudicate_flag(manifest: dict[str, Any]) -> bool:

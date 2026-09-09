@@ -12,7 +12,7 @@ from typing import Any, Iterable, TypeVar
 from pydantic import BaseModel
 
 from chemex_lit.errors import ArtifactError
-from chemex_lit.models import ProvenanceEntry
+from chemex_lit.models import ProvenanceEntry, normalize_mode
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -79,20 +79,42 @@ class ArtifactStore:
         models: dict[str, str],
         mode: str = "auto",
         producer_plan: dict[str, Any] | None = None,
+        profile: str | None = None,
+        models_source: str = "default",
     ) -> None:
         plan_dump = producer_plan or {}
         if self.manifest_path.exists():
             manifest = self.manifest()
-            if manifest.get("mode") not in (None, mode):
+            stored_mode = manifest.get("mode")
+            migrated = False
+            if isinstance(stored_mode, str) and stored_mode != mode:
+                if normalize_mode(stored_mode) != mode:
+                    raise ArtifactError(
+                        "Run mode changed since run creation: "
+                        f"stored={stored_mode} requested={mode}. "
+                        "Mode changes require a fresh run directory."
+                    )
+                # Legacy alias manifest (e.g. "auto-agent"): adopt the canonical
+                # mode so the run keeps resuming after the v1 convergence.
+                migrated = True
+            stored_plan = manifest.get("producer_plan")
+            plan_migrated = False
+            if stored_plan not in (None, plan_dump):
+                if not migrated:
+                    raise ArtifactError(
+                        "Producer plan changed since run creation. Producer changes "
+                        "require a fresh run directory."
+                    )
+                plan_migrated = True
+            if migrated or plan_migrated:
+                manifest["mode"] = mode
+                manifest["producer_plan"] = plan_dump
+                self.write_json("manifest.json", manifest)
+            if manifest.get("profile") not in (None, profile):
                 raise ArtifactError(
-                    "Run mode changed since run creation: "
-                    f"stored={manifest.get('mode')} requested={mode}. "
-                    "Mode changes require a fresh run directory."
-                )
-            if manifest.get("producer_plan") not in (None, plan_dump):
-                raise ArtifactError(
-                    "Producer plan changed since run creation. Producer changes require a fresh "
-                    "run directory."
+                    "Profile changed since run creation: "
+                    f"stored={manifest.get('profile')!r} requested={profile!r}. "
+                    "Profile changes require a fresh run directory."
                 )
             stored_config = manifest.get("config")
             if isinstance(stored_config, dict):
@@ -118,7 +140,7 @@ class ArtifactStore:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "chemex_version": version,
                 "schema_version": "1.0",
-                "input_path": str(input_path.resolve()),
+                "input_path": input_path.resolve().as_posix(),
                 "input_sha256": input_sha256,
                 "config": config_dump,
                 "config_sha256": config_sha256,
@@ -126,6 +148,8 @@ class ArtifactStore:
                 "models": models,
                 "mode": mode,
                 "producer_plan": plan_dump,
+                "profile": profile,
+                "models_source": models_source,
                 "status": "running",
                 "stages": {},
             },

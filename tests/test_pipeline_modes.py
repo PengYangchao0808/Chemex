@@ -468,6 +468,51 @@ def test_resume_rejects_mismatched_mode(tmp_path: Path) -> None:
         pipeline.run(RunRequest(pdf_path=pdf, output_dir=run_dir, resume=True, mode="semi"))
 
 
+def test_resume_migrates_legacy_alias_manifest(tmp_path: Path) -> None:
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    run_dir = tmp_path / "run"
+    pipeline = make_pipeline(ScenarioMinerU())
+
+    summary = pipeline.run(RunRequest(pdf_path=pdf, output_dir=run_dir, mode="semi"))
+    assert summary.status == "awaiting_input"
+
+    store = ArtifactStore(run_dir)
+    tasks = store.read_models("tasks/extraction.jsonl", ExtractionTask)
+    state = store.read_json("tasks/state.json")
+    apply_submissions(
+        store,
+        None,
+        [
+            CandidateSubmission(
+                task_id=tasks[0].task_id,
+                producer=SubmissionProducer(kind="human", client_name="tester"),
+                outputs=[
+                    {"compound_label": "7", "smiles": "CC"},
+                    {"compound_label": "8", "smiles": "CCO"},
+                ],
+            )
+        ],
+        tasks,
+        state,
+    )
+
+    manifest = store.manifest()
+    manifest["mode"] = "human-ocsr-agent"
+    manifest["producer_plan"]["text"] = {"kind": "host_agent"}
+    manifest["producer_plan"]["adjudication"] = {"kind": "host_agent"}
+    store.write_json("manifest.json", manifest)
+
+    resumed = pipeline.run(
+        RunRequest(pdf_path=pdf, output_dir=run_dir, resume=True, mode="semi")
+    )
+
+    assert resumed.status == "success"
+    migrated = ArtifactStore(run_dir).manifest()
+    assert migrated["mode"] == "semi"
+    assert migrated["producer_plan"]["structure"]["kind"] == "host_agent"
+
+
 def test_producer_plan_maps_channels_to_model_tiers() -> None:
     config = load_config()
     auto = build_producer_plan("auto", config, False)
@@ -479,4 +524,4 @@ def test_producer_plan_maps_channels_to_model_tiers() -> None:
 
     semi = build_producer_plan("semi", config, False)
     assert semi.table.model == config.models.vision.model
-    assert semi.structure.kind == "human"
+    assert semi.structure.kind == "host_agent"

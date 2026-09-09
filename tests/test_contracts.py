@@ -162,7 +162,7 @@ def test_run_summary_accepts_all_status_values() -> None:
                 "status": status,
                 "records_count": 0,
                 "review_count": 0,
-                "output_dir": "outputs/run-1",
+                "run_dir": "outputs/run-1",
             }
         )
         assert summary.status == status
