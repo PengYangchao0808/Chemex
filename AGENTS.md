@@ -7,17 +7,23 @@ from literature PDFs.
 
 ```text
 src/chemex_lit/
+├── __init__.py     # Package version only
+├── cli.py          # Click thin shell over the pipeline workflow API
+├── pipeline.py     # The only production pipeline and workflow API
 ├── models.py       # Stable v1 data contract
-├── pipeline.py     # The only production pipeline
 ├── store.py        # Atomic artifacts and resume state
+├── config.py       # Effective configuration and its fingerprint
+├── profiles.py     # Model profile discovery and resolution
+├── credentials.py  # Environment-first credential resolution
+├── errors.py       # Shared exception types and utc_now
 ├── mineru.py       # MinerU cloud adapter
-├── extraction/     # Text, table, and structure extractors
-├── llm/            # One OpenAI-compatible client and prompt registry
-├── chemistry/      # Deterministic validation and rendering
 ├── assembly.py     # Deterministic candidate merge
 ├── adjudicator.py  # Optional evidence-bound acceptance only
 ├── review.py       # The only review generator/applier
-├── evaluation/     # Deterministic release-gate metrics
+├── extraction/     # Task planning, payload normalization, fulfill-only extractors
+├── llm.py          # One OpenAI-compatible client and prompt registry
+├── chemistry.py    # Deterministic validation and rendering
+├── evaluation.py   # Deterministic release-gate metrics
 └── resources/      # Packaged config, prompts, and template
 ```
 

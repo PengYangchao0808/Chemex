@@ -28,12 +28,14 @@ models in memory. JSONL is a persistence and external interchange boundary.
 ## Dependency direction
 
 ```text
-cli → application service → pipeline → adapters/services → models
-                                          store ───────────────→ models
+cli → pipeline → adapters/services → models
+                 store ────────────→ models
 ```
 
-`models.py` imports no business modules. Experimental code may depend on the core; the core must
-never depend on experimental code.
+The CLI is a thin shell: each command maps one-to-one onto a pipeline workflow function
+(`run_pdf`, `resume_run`, `submit_files`, `run_status`); `cancel` writes the terminal state
+through `ArtifactStore` directly. `models.py` imports no business modules. Experimental code may
+depend on the core; the core must never depend on experimental code.
 
 ## Artifact contract
 
