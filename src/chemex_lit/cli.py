@@ -59,10 +59,10 @@ class SubmitSummary(TypedDict):
     files: NotRequired[list[SubmitFileInfo]]
 
 
-_MODE_CHOICES = ("auto", "semi", "agent", "human-ocsr-agent", "auto-agent")
+_MODE_CHOICES = ("auto", "semi", "agent")
 _MODE_HELP = (
-    "Run mode; human-ocsr-agent and auto-agent are deprecated aliases "
-    "of semi and agent."
+    "Run mode: auto is unattended, semi externalizes structures, "
+    "agent externalizes all generative tasks."
 )
 
 
@@ -291,7 +291,7 @@ def evaluate_command(run_dir: Path, gold: Path, output: Path | None) -> None:
     show_default=True,
     help=(
         "Mode whose CLI credential requirements are checked; "
-        "human-ocsr-agent and auto-agent are deprecated aliases of semi and agent."
+        "auto and semi need text/vision keys, agent needs only MinerU."
     ),
 )
 @click.option("--json", "as_json", is_flag=True, help="Print the check result as JSON.")

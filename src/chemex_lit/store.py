@@ -12,7 +12,7 @@ from typing import Any, Iterable, TypeVar
 from pydantic import BaseModel
 
 from chemex_lit.errors import ArtifactError
-from chemex_lit.models import ProvenanceEntry, normalize_mode
+from chemex_lit.models import ProvenanceEntry
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -86,30 +86,18 @@ class ArtifactStore:
         if self.manifest_path.exists():
             manifest = self.manifest()
             stored_mode = manifest.get("mode")
-            migrated = False
             if isinstance(stored_mode, str) and stored_mode != mode:
-                if normalize_mode(stored_mode) != mode:
-                    raise ArtifactError(
-                        "Run mode changed since run creation: "
-                        f"stored={stored_mode} requested={mode}. "
-                        "Mode changes require a fresh run directory."
-                    )
-                # Legacy alias manifest (e.g. "auto-agent"): adopt the canonical
-                # mode so the run keeps resuming after the v1 convergence.
-                migrated = True
+                raise ArtifactError(
+                    "Run mode changed since run creation: "
+                    f"stored={stored_mode} requested={mode}. "
+                    "Mode changes require a fresh run directory."
+                )
             stored_plan = manifest.get("producer_plan")
-            plan_migrated = False
             if stored_plan not in (None, plan_dump):
-                if not migrated:
-                    raise ArtifactError(
-                        "Producer plan changed since run creation. Producer changes "
-                        "require a fresh run directory."
-                    )
-                plan_migrated = True
-            if migrated or plan_migrated:
-                manifest["mode"] = mode
-                manifest["producer_plan"] = plan_dump
-                self.write_json("manifest.json", manifest)
+                raise ArtifactError(
+                    "Producer plan changed since run creation. Producer changes "
+                    "require a fresh run directory."
+                )
             if manifest.get("profile") not in (None, profile):
                 raise ArtifactError(
                     "Profile changed since run creation: "

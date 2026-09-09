@@ -36,10 +36,6 @@ Three modes control who fulfills each extraction channel.
 | semi | CLI model | CLI vision model | Host agent submits structures | CLI reasoning model | You want to supply or verify structures yourself |
 | agent | Host agent | Host agent | Host agent | Host agent | Full host-agent control |
 
-> Deprecated aliases: `human-ocsr-agent` maps to `semi` and `auto-agent` maps
-> to `agent`. The CLI accepts both alias values for `--mode` and stores the
-> canonical mode in the run manifest.
-
 Credential requirements by mode:
 
 - `auto`: `MINERU_API_KEY`, `CHEMEX_TEXT_API_KEY`, `CHEMEX_VISION_API_KEY`,

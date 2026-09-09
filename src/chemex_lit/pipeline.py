@@ -398,12 +398,7 @@ def _read_jsonl_models(path: Path, model: type[_T]) -> list[_T]:
 
 
 def _manifest_mode(manifest: dict[str, Any]) -> RunMode:
-    """Extract and normalize the run mode from a manifest.
-
-    Legacy manifests may still carry deprecated alias values; they are
-    converted to the canonical mode so resume keeps working across the
-    v1 mode convergence.
-    """
+    """Extract the run mode from a manifest."""
 
     raw = manifest.get("mode")
     if not isinstance(raw, str):
@@ -412,8 +407,8 @@ def _manifest_mode(manifest: dict[str, Any]) -> RunMode:
         return normalize_mode(raw)
     except ChemExError as exc:
         raise ArtifactError(
-            f"Run manifest has an invalid mode {raw!r}; expected auto, semi, or agent"
-            " (legacy aliases human-ocsr-agent and auto-agent are accepted)"
+            f"Run manifest has an invalid mode {raw!r}; expected auto, semi, or agent. "
+            "Start a fresh run with the same input instead."
         ) from exc
 
 

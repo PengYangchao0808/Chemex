@@ -24,24 +24,11 @@ RunStatus = Literal[
 ProducerKind = Literal["cli_model", "human", "host_agent"]
 Channel = Literal["text", "table", "structure", "adjudication"]
 
-MODE_ALIASES: Final[dict[str, RunMode]] = {
-    "human-ocsr-agent": "semi",
-    "auto-agent": "agent",
-}
-"""Deprecated v0 mode names mapped to their canonical v1 replacements.
-
-Aliases are accepted at input boundaries only (CLI flags, legacy manifests);
-internal flow and persisted manifests always carry the canonical value.
-"""
-
 _CANONICAL_MODES: Final[tuple[str, ...]] = get_args(RunMode)
 
 
 def normalize_mode(value: str) -> RunMode:
     """Return the canonical :data:`RunMode` for ``value``.
-
-    Deprecated aliases (``human-ocsr-agent``, ``auto-agent``) are converted to
-    their canonical replacements; canonical inputs pass through unchanged.
 
     Args:
         value: Raw mode string from a CLI flag or a stored manifest.
@@ -50,15 +37,12 @@ def normalize_mode(value: str) -> RunMode:
         The canonical run mode.
 
     Raises:
-        ChemExError: If ``value`` is neither canonical nor a known alias.
+        ChemExError: If ``value`` is not a canonical mode.
     """
 
-    aliased = MODE_ALIASES.get(value)
-    if aliased is not None:
-        return aliased
     if value in _CANONICAL_MODES:
         return cast(RunMode, value)
-    valid = ", ".join((*_CANONICAL_MODES, *sorted(MODE_ALIASES)))
+    valid = ", ".join(_CANONICAL_MODES)
     raise ChemExError(f"Unknown mode: {value!r}. Valid modes: {valid}.")
 
 

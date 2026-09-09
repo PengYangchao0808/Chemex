@@ -13,7 +13,7 @@ from chemex_lit.assembly import Assembler
 from chemex_lit.chemistry import Validator
 from chemex_lit.cli import main
 from chemex_lit.config import AppConfig, load_config
-from chemex_lit.errors import ChemExError
+from chemex_lit.errors import ArtifactError, ChemExError
 from chemex_lit.models import (
     AdjudicationDecision,
     CandidateSubmission,
@@ -283,6 +283,32 @@ def test_workflow_status_cancel_and_resume_after_cancel(
     rejected = CliRunner().invoke(main, ["cancel", str(success_dir)])
     assert rejected.exit_code != 0
     assert "terminal status" in str(rejected.exception)
+
+
+def test_workflow_resume_rejects_manifest_with_bad_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_pipeline(monkeypatch)
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    run_dir = tmp_path / "run"
+    summary = run_pdf(_config(), pdf_path=pdf, output_dir=run_dir, mode="auto")
+    assert summary.status == "success"
+
+    store = ArtifactStore(run_dir)
+    manifest = store.manifest()
+    manifest["mode"] = "turbo"
+    store.write_json("manifest.json", manifest)
+
+    with pytest.raises(ArtifactError, match="invalid mode"):
+        resume_run(_config(), run_dir)
+
+    manifest.pop("mode")
+    store.write_json("manifest.json", manifest)
+
+    with pytest.raises(ArtifactError, match="missing a valid mode"):
+        resume_run(_config(), run_dir)
 
 
 def test_workflow_submit_adjudications_then_resume_accepts_record(

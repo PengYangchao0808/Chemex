@@ -288,12 +288,9 @@ def test_run_creates_manifest_with_canonical_mode(mode: str, cli_env: Path, monk
     assert manifest["mode"] == mode
 
 
-# 6b. Deprecated alias input is normalized before anything is persisted.
-@pytest.mark.parametrize(("alias", "canonical"), [
-    ("auto-agent", "agent"),
-    ("human-ocsr-agent", "semi"),
-])
-def test_alias_input_stores_canonical_mode(alias: str, canonical: str, cli_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+# 6b. Removed alias input is rejected before anything is persisted.
+@pytest.mark.parametrize("alias", ["auto-agent", "human-ocsr-agent"])
+def test_removed_alias_input_is_rejected(alias: str, cli_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch(monkeypatch, ScenarioMinerU(include_table=True))
     pdf = cli_env / "paper.pdf"
     pdf.write_bytes(b"pdf")
@@ -301,9 +298,8 @@ def test_alias_input_stores_canonical_mode(alias: str, canonical: str, cli_env: 
 
     result = _invoke("run", str(pdf), "--mode", alias, "--output-dir", str(run_dir), "--json")
 
-    assert result.exit_code == 0, result.output
-    manifest = ArtifactStore(run_dir).manifest()
-    assert manifest["mode"] == canonical
+    assert result.exit_code != 0
+    assert not run_dir.exists()
 
 
 # 7. semi produces structure external tasks only.

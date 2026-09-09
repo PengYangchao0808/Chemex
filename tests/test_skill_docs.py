@@ -30,7 +30,6 @@ SUBMISSION_FORMAT_MD = SKILL_DIR / "references" / "submission-format.md"
 README_MD = REPO_ROOT / "README.md"
 
 DEPRECATED_ALIASES = ("human-ocsr-agent", "auto-agent")
-ALIAS_CONTEXT = re.compile(r"alias|deprecated|兼容", re.IGNORECASE)
 NESTED_CLIENT = re.compile(r'"client"\s*:\s*\{')
 COMMANDS_WITH_JSON = ("check", "run", "status", "submit", "resume")
 REVIEW_COMMAND = "review"
@@ -75,16 +74,14 @@ def _assert_no_nested_client(name: str, text: str) -> None:
     )
 
 
-def _assert_aliases_only_in_alias_context(name: str, text: str) -> None:
+def _assert_no_deprecated_aliases(name: str, text: str) -> None:
     offenders = [
         line.strip()
         for line in text.splitlines()
         if any(alias in line for alias in DEPRECATED_ALIASES)
-        and not ALIAS_CONTEXT.search(line)
     ]
     assert not offenders, (
-        f"{name}: deprecated mode names must only appear in alias/deprecation "
-        f"context, found: {offenders}"
+        f"{name}: v1 docs must not mention removed mode aliases, found: {offenders}"
     )
 
 
@@ -126,7 +123,7 @@ def _validate_payloads(name: str, payloads: list[Any]) -> None:
 def test_skill_md_contract() -> None:
     text = _docs()["SKILL.md"]
     _assert_no_nested_client("SKILL.md", text)
-    _assert_aliases_only_in_alias_context("SKILL.md", text)
+    _assert_no_deprecated_aliases("SKILL.md", text)
     for command in (*COMMANDS_WITH_JSON, REVIEW_COMMAND):
         assert re.search(rf"chemex_lit\.cli\s+{command}\b|chemex-lit\s+{command}\b", text), (
             f"SKILL.md must document the '{command}' command"
@@ -144,7 +141,7 @@ def test_skill_md_contract() -> None:
 def test_cli_contract_md() -> None:
     text = _docs()["cli-contract.md"]
     _assert_no_nested_client("cli-contract.md", text)
-    _assert_aliases_only_in_alias_context("cli-contract.md", text)
+    _assert_no_deprecated_aliases("cli-contract.md", text)
     for command in (*COMMANDS_WITH_JSON, REVIEW_COMMAND):
         assert re.search(rf"chemex_lit\.cli\s+{command}\b|chemex-lit\s+{command}\b", text), (
             f"cli-contract.md must document the '{command}' command"
@@ -159,7 +156,7 @@ def test_cli_contract_md() -> None:
 def test_submission_format_md() -> None:
     text = _docs()["submission-format.md"]
     _assert_no_nested_client("submission-format.md", text)
-    _assert_aliases_only_in_alias_context("submission-format.md", text)
+    _assert_no_deprecated_aliases("submission-format.md", text)
     payloads = [
         payload
         for payload in _fenced_json_blocks(text)
@@ -171,7 +168,7 @@ def test_submission_format_md() -> None:
 
 def test_readme_modes() -> None:
     text = _docs()["README.md"]
-    _assert_aliases_only_in_alias_context("README.md", text)
+    _assert_no_deprecated_aliases("README.md", text)
     assert "tasks/extraction.jsonl" not in text or "\\" not in text.split(
         "tasks/extraction.jsonl"
     )[0][-200:]

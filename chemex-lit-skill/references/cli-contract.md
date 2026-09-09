@@ -15,14 +15,6 @@ Exactly three canonical modes exist. Every manifest stores one of them.
 | `semi` | text, table, adjudication | structure |
 | `agent` | none | text, table, structure, adjudication |
 
-| Deprecated alias | Canonical replacement |
-| --- | --- |
-| `human-ocsr-agent` (deprecated alias) | `semi` |
-| `auto-agent` (deprecated alias) | `agent` |
-
-`--mode` still accepts the alias values; they are normalized before the
-run starts and only the canonical value is persisted.
-
 ## Six standard commands
 
 ```text

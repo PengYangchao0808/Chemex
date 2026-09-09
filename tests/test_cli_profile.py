@@ -157,8 +157,10 @@ def test_run_help_lists_all_supported_modes() -> None:
     result = CliRunner().invoke(main, ["run", "--help"])
 
     assert result.exit_code == 0
-    for mode in ("auto", "semi", "agent", "human-ocsr-agent", "auto-agent"):
+    for mode in ("auto", "semi", "agent"):
         assert mode in result.output
+    for removed in ("human-ocsr-agent", "auto-agent"):
+        assert removed not in result.output
 
 
 def test_check_command_prints_profile_lines(

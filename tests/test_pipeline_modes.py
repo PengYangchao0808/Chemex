@@ -468,7 +468,7 @@ def test_resume_rejects_mismatched_mode(tmp_path: Path) -> None:
         pipeline.run(RunRequest(pdf_path=pdf, output_dir=run_dir, resume=True, mode="semi"))
 
 
-def test_resume_migrates_legacy_alias_manifest(tmp_path: Path) -> None:
+def test_resume_rejects_legacy_alias_manifest(tmp_path: Path) -> None:
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"pdf")
     run_dir = tmp_path / "run"
@@ -503,14 +503,8 @@ def test_resume_migrates_legacy_alias_manifest(tmp_path: Path) -> None:
     manifest["producer_plan"]["adjudication"] = {"kind": "host_agent"}
     store.write_json("manifest.json", manifest)
 
-    resumed = pipeline.run(
-        RunRequest(pdf_path=pdf, output_dir=run_dir, resume=True, mode="semi")
-    )
-
-    assert resumed.status == "success"
-    migrated = ArtifactStore(run_dir).manifest()
-    assert migrated["mode"] == "semi"
-    assert migrated["producer_plan"]["structure"]["kind"] == "host_agent"
+    with pytest.raises(ArtifactError, match="Run mode changed"):
+        pipeline.run(RunRequest(pdf_path=pdf, output_dir=run_dir, resume=True, mode="semi"))
 
 
 def test_producer_plan_maps_channels_to_model_tiers() -> None:

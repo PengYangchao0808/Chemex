@@ -136,9 +136,7 @@ chemex-lit evaluate outputs/paper-<hash> --gold benchmark.jsonl
 Modes: `auto` is unattended and suitable for CI or reproducible batch runs.
 `semi` pauses at `awaiting_input` so structure tasks can be submitted by a
 host agent (or supplied up front with `--structures`). `agent` externalizes
-all generative tasks to a host agent. Two deprecated aliases are still
-accepted by `--mode` and normalized on input: `human-ocsr-agent` (alias of
-`semi`) and `auto-agent` (alias of `agent`). See
+all generative tasks to a host agent. See
 [docs/adr/002-layered-architecture.md](docs/adr/002-layered-architecture.md).
 
 With a profile such as `codex-diverse`, run `--mode agent` to emit host tasks

@@ -141,12 +141,14 @@ def _host_profile_yaml(path: Path) -> Path:
     return path
 
 
-def test_normalize_mode_converts_aliases_and_rejects_unknown() -> None:
+def test_normalize_mode_accepts_canonical_and_rejects_removed_aliases() -> None:
     assert normalize_mode("auto") == "auto"
     assert normalize_mode("semi") == "semi"
     assert normalize_mode("agent") == "agent"
-    assert normalize_mode("human-ocsr-agent") == "semi"
-    assert normalize_mode("auto-agent") == "agent"
+    with pytest.raises(ChemExError, match="Unknown mode"):
+        normalize_mode("human-ocsr-agent")
+    with pytest.raises(ChemExError, match="Unknown mode"):
+        normalize_mode("auto-agent")
     with pytest.raises(ChemExError, match="Unknown mode"):
         normalize_mode("turbo")
 
@@ -211,14 +213,12 @@ def test_agent_mode_pauses_for_all_generative_tasks(tmp_path: Path) -> None:
     assert plan["structure"]["policy"] == "codex-structure"
 
 
-@pytest.mark.parametrize(("raw_mode", "canonical", "needs_cli_keys"), [
-    ("agent", "agent", False),
-    ("auto-agent", "agent", False),
-    ("human-ocsr-agent", "semi", True),
+@pytest.mark.parametrize(("raw_mode", "needs_cli_keys"), [
+    ("agent", False),
+    ("semi", True),
 ])
-def test_check_accepts_alias_modes_and_reports_canonical(
+def test_check_reports_canonical_mode(
     raw_mode: str,
-    canonical: str,
     needs_cli_keys: bool,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -236,7 +236,13 @@ def test_check_accepts_alias_modes_and_reports_canonical(
     result = CliRunner().invoke(main, ["check", "--mode", raw_mode])
 
     assert result.exit_code == 0, result.output
-    assert f"Mode:    {canonical}" in result.output
+    assert f"Mode:    {raw_mode}" in result.output
+
+
+def test_check_rejects_removed_alias_modes() -> None:
+    result = CliRunner().invoke(main, ["check", "--mode", "auto-agent"])
+
+    assert result.exit_code != 0
 
 
 def test_check_agent_json_omits_cli_model_keys(
