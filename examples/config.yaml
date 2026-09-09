@@ -1,0 +1,23 @@
+schema_version: 1
+output_dir: outputs
+
+mineru:
+  base_url: https://mineru.net
+  api_key_env: MINERU_API_KEY
+
+models:
+  text:
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-v4-flash
+    api_key_env: DEEPSEEK_API_KEY
+  vision:
+    base_url: https://open.bigmodel.cn/api/paas/v4
+    model: glm-4v-plus
+    api_key_env: GLM_API_KEY
+  reasoning:
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-v4-pro
+    api_key_env: DEEPSEEK_API_KEY
+
+pipeline:
+  adjudicate_ambiguous: false

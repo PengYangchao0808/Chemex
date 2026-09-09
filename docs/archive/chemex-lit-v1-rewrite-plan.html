@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChemEx-Lit v1 破坏性重构方案</title>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --primary: #2563eb;
+            --primary-light: #eff6ff;
+            --danger: #dc2626;
+            --danger-light: #fef2f2;
+            --warning: #d97706;
+            --warning-light: #fffbeb;
+            --success: #16a34a;
+            --success-light: #f0fdf4;
+            --info: #0891b2;
+            --info-light: #ecfeff;
+            --purple: #7c3aed;
+            --purple-light: #f5f3ff;
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+            --radius: 10px;
+        }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 260px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            padding: 24px 16px;
+            position: fixed; top: 0; bottom: 0; left: 0;
+            overflow-y: auto; z-index: 100;
+        }
+        .brand { font-size: 1.25rem; font-weight: 700; color: var(--danger); display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .brand-sub { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+        .nav a { display: block; padding: 8px 12px; border-radius: 6px; color: var(--text); font-size: 0.92rem; margin-bottom: 4px; }
+        .nav a:hover { background: var(--danger-light); color: var(--danger); text-decoration: none; }
+        .main { margin-left: 260px; flex: 1; padding: 32px 40px; max-width: 1100px; }
+        h1, h2, h3, h4 { margin-top: 0; font-weight: 700; }
+        h1 { font-size: 2rem; margin-bottom: 8px; }
+        h2 { font-size: 1.5rem; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+        h3 { font-size: 1.15rem; margin: 28px 0 12px; color: var(--text); }
+        p { margin: 0 0 12px; }
+        .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; margin-bottom: 24px; }
+        .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .metric { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; text-align: center; }
+        .metric-value { font-size: 1.8rem; font-weight: 800; color: var(--danger); line-height: 1; margin-bottom: 6px; }
+        .metric-label { font-size: 0.85rem; color: var(--text-muted); }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+        .badge-danger { background: var(--danger-light); color: var(--danger); }
+        .badge-warning { background: var(--warning-light); color: var(--warning); }
+        .badge-success { background: var(--success-light); color: var(--success); }
+        .badge-info { background: var(--info-light); color: var(--info); }
+        .badge-purple { background: var(--purple-light); color: var(--purple); }
+        .badge-muted { background: var(--bg); color: var(--text-muted); }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 16px 0; }
+        th, td { padding: 12px 14px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+        th { background: var(--bg); font-weight: 600; color: var(--text-muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.03em; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #fafafa; }
+        .flowchart { background: var(--surface); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.85rem; line-height: 1.8; overflow-x: auto; }
+        .flowchart .node { display: inline-block; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); margin: 2px; }
+        .flowchart .node-primary { border-color: var(--primary); background: var(--primary-light); }
+        .flowchart .node-danger { border-color: var(--danger); background: var(--danger-light); }
+        .flowchart .node-success { border-color: var(--success); background: var(--success-light); }
+        .flowchart .arrow { color: var(--text-muted); margin: 0 4px; }
+        .tree { font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.85rem; line-height: 1.8; background: var(--bg); padding: 16px 20px; border-radius: var(--radius); }
+        .tree .dir { color: var(--primary); font-weight: 600; }
+        .tree .file { color: var(--text); }
+        .tree .comment { color: var(--text-muted); font-style: italic; }
+        .tree .indent { display: inline-block; width: 20px; }
+        .callout { border-left: 4px solid var(--primary); background: var(--primary-light); padding: 16px 20px; border-radius: 0 var(--radius) var(--radius) 0; margin: 16px 0; }
+        .callout-danger { border-left-color: var(--danger); background: var(--danger-light); }
+        .callout-warning { border-left-color: var(--warning); background: var(--warning-light); }
+        .callout-success { border-left-color: var(--success); background: var(--success-light); }
+        .callout-purple { border-left-color: var(--purple); background: var(--purple-light); }
+        .checklist { list-style: none; padding-left: 0; }
+        .checklist li { padding: 6px 0 6px 28px; position: relative; }
+        .checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--primary); font-weight: 700; }
+        .checklist li.checked::before { content: "☑"; color: var(--success); }
+        .code-block { background: var(--bg); border-radius: var(--radius); padding: 16px 20px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.85rem; line-height: 1.6; overflow-x: auto; border: 1px solid var(--border); margin: 16px 0; }
+        .code-block .keyword { color: var(--purple); }
+        .code-block .class { color: var(--primary); }
+        .code-block .str { color: var(--success); }
+        .code-block .comment { color: var(--text-muted); }
+        .footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; }
+        @media print {
+            .sidebar { display: none; }
+            .main { margin-left: 0; max-width: none; }
+            .card, .flowchart { box-shadow: none; border: 1px solid var(--border); page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="brand">🧪 ChemEx-Lit</div>
+            <div class="brand-sub">v1 破坏性重构方案：新核心重写，旧代码只作行为参考</div>
+            <nav class="nav">
+                <a href="#principle">核心原则</a>
+                <a href="#goals">设计目标</a>
+                <a href="#architecture">最终架构</a>
+                <a href="#directory">精简目录</a>
+                <a href="#models">数据模型</a>
+                <a href="#pipeline">Pipeline</a>
+                <a href="#extractor">提取器</a>
+                <a href="#llm">LLM 层</a>
+                <a href="#prompt">Prompt 设计</a>
+                <a href="#validation">验证与修复</a>
+                <a href="#assembler">Assembler</a>
+                <a href="#manual">自动/人工统一</a>
+                <a href="#store">ArtifactStore</a>
+                <a href="#config">配置精简</a>
+                <a href="#cli">CLI 精简</a>
+                <a href="#delete">旧代码删除清单</a>
+                <a href="#approach">实施方式</a>
+                <a href="#criteria">最终判定标准</a>
+            </nav>
+        </aside>
+
+        <main class="main">
+            <section id="principle">
+                <h1>ChemEx-Lit v1 破坏性重构方案</h1>
+                <p class="text-muted" style="font-size:1.05rem;">不逐个迁移 89 个模块；以新的数据契约和单一 Pipeline 为中心重新实现，旧代码只作行为参考。</p>
+
+                <div class="metrics">
+                    <div class="metric">
+                        <div class="metric-value">89 → 24</div>
+                        <div class="metric-label">生产模块目标</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">1</div>
+                        <div class="metric-label">Pipeline</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">9</div>
+                        <div class="metric-label">核心数据模型</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">7</div>
+                        <div class="metric-label">CLI 命令</div>
+                    </div>
+                </div>
+
+                <div class="callout callout-danger">
+                    <strong>核心原则</strong>：新核心重写，旧代码只作行为参考。生产核心压缩到约 20–30 个模块、一条管线、一个数据模型体系、一个 LLM 客户端、一个审阅入口。
+                </div>
+            </section>
+
+            <section id="goals">
+                <h2>核心设计目标</h2>
+
+                <h3>v1 核心只解决一件事</h3>
+                <p>PDF → 文档证据 → 反应候选 → 结构候选 → 验证 → 反应记录 → 人工审阅</p>
+
+                <h3>明确删除的核心复杂度</h3>
+                <ul class="checklist">
+                    <li>不在核心中做自动进化。</li>
+                    <li>不维护多套自动/半自动 orchestrator。</li>
+                    <li>不做通用 Agent 平台。</li>
+                    <li>不做通用 DAG/插件框架。</li>
+                    <li>不维护多个 Reviewer。</li>
+                    <li>不允许运行时从仓库根目录读取 prompt/config。</li>
+                    <li>不让 Oracle 从头生成最终记录。</li>
+                    <li>不允许实验模块反向依赖生产核心。</li>
+                </ul>
+
+                <h3>核心约束</h3>
+                <ul class="checklist">
+                    <li>一条 Pipeline</li>
+                    <li>一套 Pydantic Schema</li>
+                    <li>一个 ArtifactStore</li>
+                    <li>一个 OpenAI-compatible LLM Client</li>
+                    <li>一套 Prompt Registry</li>
+                    <li>一个 Review 页面</li>
+                    <li>一个确定性 Assembler</li>
+                    <li>所有不确定项进入 ReviewQueue，不做静默修复</li>
+                </ul>
+            </section>
+
+            <section id="architecture">
+                <h2>最终架构</h2>
+
+                <div class="flowchart">
+                    <div style="text-align:center;">
+                        <span class="node node-danger">PDF</span>
+                        <span class="arrow">→</span>
+                        <span class="node node-primary">MinerUAdapter</span>
+                        <span class="arrow">→</span>
+                        <span class="node node-primary">DocumentBundle</span>
+                    </div>
+                    <div style="text-align:center; margin-top:12px;">
+                        <span class="node">DocumentBundle</span>
+                        <span class="arrow">→</span>
+                        <span class="node">TextExtractor</span>
+                        <span class="arrow">→</span>
+                        <span class="node">TableExtractor</span>
+                        <span class="arrow">→</span>
+                        <span class="node">StructureExtractor</span>
+                    </div>
+                    <div style="text-align:center; margin-top:12px;">
+                        <span class="node">TextExtractor</span>
+                        <span class="arrow">↓</span>
+                        <span class="node">TableExtractor</span>
+                        <span class="arrow">↓</span>
+                        <span class="node">StructureExtractor</span>
+                    </div>
+                    <div style="text-align:center; margin-top:12px;">
+                        <span class="node node-primary">CandidateSet</span>
+                        <span class="arrow">→</span>
+                        <span class="node node-primary">Validator</span>
+                        <span class="arrow">→</span>
+                        <span class="node node-primary">DeterministicAssembler</span>
+                    </div>
+                    <div style="text-align:center; margin-top:12px;">
+                        <span class="node node-primary">DeterministicAssembler</span>
+                        <span class="arrow">→</span>
+                        <span class="node">存在歧义？</span>
+                    </div>
+                    <div style="text-align:center; margin-top:12px;">
+                        <span class="node">否 →</span>
+                        <span class="arrow"> </span>
+                        <span class="node node-success">ReactionRecord</span>
+                        <span class="arrow">→</span>
+                        <span class="node">records.jsonl</span>
+                        <span class="arrow">+</span>
+                        <span class="node">review.jsonl + review.html</span>
+                    </div>
+                    <div style="text-align:center; margin-top:12px;">
+                        <span class="node">是 →</span>
+                        <span class="arrow"> </span>
+                        <span class="node node-warning">Optional Adjudicator</span>
+                        <span class="arrow">→</span>
+                        <span class="node node-success">ReactionRecord</span>
+                    </div>
+                </div>
+
+                <h3>依赖方向（必须单向）</h3>
+                <div class="tree">
+                    <div>cli</div>
+                    <div><span class="indent"></span>└── pipeline</div>
+                    <div><span class="indent"></span>    <span class="indent"></span>├── mineru</div>
+                    <div><span class="indent"></span>    <span class="indent"></span>├── extraction</div>
+                    <div><span class="indent"></span>    <span class="indent"></span>│   <span class="indent"></span>└── llm</div>
+                    <div><span class="indent"></span>    <span class="indent"></span>├── validation</div>
+                    <div><span class="indent"></span>    <span class="indent"></span>├── assembly</div>
+                    <div><span class="indent"></span>    <span class="indent"></span>├── review</div>
+                    <div><span class="indent"></span>    <span class="indent"></span>└── store</div>
+                    <div><span class="indent"></span></span></div>
+                    <div>所有模块 → models</div>
+                    <div>models → 不依赖任何业务模块</div>
+                </div>
+
+                <div class="callout callout-purple">
+                    <strong>禁止</strong>：extractor → orchestrator；validator → CLI；models → LLM；core → experimental；stage A → 直接读取 stage B 的内部文件。
+                </div>
+            </section>
+
+            <section id="directory">
+                <h2>精简目录</h2>
+                <p>生产包控制在约 24 个 Python 文件。单文件软限制 400–500 行，单函数软限制 60 行。</p>
+
+                <div class="tree">
+                    <div class="dir">chemex-lit/</div>
+                    <div><span class="indent"></span><span class="dir">src/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="dir">chemex_lit/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">__init__.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">cli.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">config.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">models.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">errors.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">pipeline.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">store.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">mineru.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">extraction/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">__init__.py, text.py, table.py, structure.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">llm/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">client.py, prompts.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">chemistry/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">validate.py, render.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">assembly.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">adjudicator.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">review.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">evaluation/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">load.py, match.py, metrics.py</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="dir">resources/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="indent"></span><span class="file">default_config.yaml, templates/review.html.j2, prompts/*.yaml</span></div>
+                    <div><span class="indent"></span><span class="dir">tests/</span> <span class="comment"># unit/, contract/, integration/, fixtures/synthetic/</span></div>
+                    <div><span class="indent"></span><span class="dir">docs/</span></div>
+                    <div><span class="indent"></span><span class="dir">examples/</span></div>
+                    <div><span class="indent"></span><span class="file">pyproject.toml, README.md, CHANGELOG.md, LICENSE, SECURITY.md</span></div>
+                </div>
+
+                <div class="callout callout-success">
+                    <strong>目标文件数</strong>：约 24 个 Python 文件。核心目录 <code>chemex_lit/</code> 包括：1 个 CLI、1 个 Pipeline、1 个 Store、1 个 MinerU 适配器、3 个 Extractor、2 个 LLM 模块、2 个 Chemistry 模块、1 个 Assembler、1 个 Adjudicator、1 个 Review、3 个 Evaluation 模块、1 个 Models、1 个 Config、1 个 Errors。
+                </div>
+            </section>
+
+            <section id="models">
+                <h2>唯一核心数据模型（9 个）</h2>
+                <p>不要继续扩展几十个相似 Schema。核心控制在以下 9 个模型。</p>
+
+                <table>
+                    <thead><tr><th>模型</th><th>用途</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>RunRequest</code></td><td>运行输入：pdf_path、output_dir、config_path、external_structures、resume</td></tr>
+                        <tr><td><code>EvidenceRef</code></td><td>所有结论必须能回到证据：evidence_id、kind、page、source_path、text、bbox</td></tr>
+                        <tr><td><code>DocumentBundle</code></td><td>MinerU 输出的唯一内部表示：document_id、markdown、images、evidence</td></tr>
+                        <tr><td><code>CompoundRef</code></td><td>化合物引用：label、name、smiles、role</td></tr>
+                        <tr><td><code>ReactionCandidate</code></td><td>正文和表格提取统一输出：reactants、products、reagents、solvents、conditions、yield、evidence_ids、confidence</td></tr>
+                        <tr><td><code>StructureCandidate</code></td><td>结构提取输出：compound_label、smiles、evidence_ids、confidence</td></tr>
+                        <tr><td><code>ValidationIssue</code></td><td>G1–G4 统一表示：code、severity、target_id、message、suggested_value</td></tr>
+                        <tr><td><code>ReactionRecord</code></td><td>v1 正式公共 Schema：schema_version、reaction_id、compounds、conditions、evidence、confidence、review_status、issues</td></tr>
+                        <tr><td><code>RunSummary</code></td><td>运行结果：run_id、status、records_count、review_count、output_dir、stages</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="callout callout-warning">
+                    <strong>关键简化</strong>：不再保留 TextCandidate、TableCandidate 等多套近似模型；<code>ReactionCandidate</code> 同时服务于 text 和 table 提取。<code>DocumentBundle</code> 吸收 <code>layout_indexer.py</code> 的能力，不再保留独立 Evidence Bundle 体系。
+                </div>
+            </section>
+
+            <section id="pipeline">
+                <h2>Pipeline 设计</h2>
+                <div class="callout callout-purple">
+                    <code>pipeline.py</code> 只负责顺序和状态，不实现具体化学逻辑。
+                </div>
+
+                <div class="code-block">
+<span class="keyword">class</span> <span class="class">Pipeline</span>:
+    <span class="keyword">def</span> <span class="class">__init__</span>(self, mineru, text_extractor, table_extractor,
+                 structure_extractor, validator, assembler, store,
+                 adjudicator=None) <span class="keyword">-></span> None:
+        ...
+
+    <span class="keyword">def</span> <span class="class">run</span>(self, request: RunRequest) <span class="keyword">-></span> RunSummary:
+        document = self.mineru.convert(request.pdf_path)
+        reaction_candidates = self._extract_reactions(document)
+        structure_candidates = self._extract_structures(document, request.external_structures)
+        issues = self.validator.validate(reaction_candidates, structure_candidates)
+        records = self.assembler.assemble(reaction_candidates, structure_candidates, issues)
+        records = self._adjudicate_ambiguous(records, document)
+        self.store.write_records(records)
+        <span class="keyword">return</span> self._build_summary(records)
+                </div>
+
+                <h3>并行度约束</h3>
+                <ul class="checklist">
+                    <li>只允许三个并行任务：TextExtractor、TableExtractor、StructureExtractor</li>
+                    <li>不再使用 <code>parallel_workers: 30</code></li>
+                    <li>默认最多 3 个 stage worker</li>
+                    <li>视觉请求单独限制并发为 1–2</li>
+                </ul>
+            </section>
+
+            <section id="extractor">
+                <h2>提取器设计</h2>
+                <p>不引入通用插件系统，只定义小型 Protocol：</p>
+
+                <div class="code-block">
+<span class="keyword">class</span> <span class="class">ReactionExtractor</span>(Protocol):
+    <span class="keyword">def</span> <span class="class">extract</span>(self, document: DocumentBundle) <span class="keyword">-></span> List[ReactionCandidate]:
+        ...
+                </div>
+
+                <h3>三个实现</h3>
+                <ul>
+                    <li><strong>TextExtractor</strong></li>
+                    <li><strong>TableExtractor</strong></li>
+                    <li><strong>StructureExtractor</strong></li>
+                </ul>
+
+                <h3>每个 Extractor 只做三件事</h3>
+                <ol>
+                    <li>选择证据。</li>
+                    <li>调用 LLM。</li>
+                    <li>将响应解析为正式 Candidate Schema。</li>
+                </ol>
+
+                <div class="callout callout-danger">
+                    <strong>Extractor 不允许</strong>：写最终记录；自行执行审阅；自行调用 RDKit 修复；读取其他 Extractor 的 JSONL；决定 Pipeline 状态。
+                </div>
+            </section>
+
+            <section id="llm">
+                <h2>LLM 层精简</h2>
+                <p>当前多 backend/resolver/hybrid/agent bridge 体系全部退出核心。</p>
+
+                <h3>只保留一个接口</h3>
+                <div class="code-block">
+<span class="keyword">class</span> <span class="class">LLMClient</span>:
+    <span class="keyword">def</span> <span class="class">complete</span>(
+        self,
+        model: ModelSpec,
+        prompt: <span class="class">str</span>,
+        images: Sequence[Path] = (),
+    ) <span class="keyword">-></span> dict:
+        ...
+                </div>
+
+                <h3><code>llm/client.py</code> 职责</h3>
+                <ul class="checklist">
+                    <li>payload 构建</li>
+                    <li>httpx 请求</li>
+                    <li>重试</li>
+                    <li>错误分类</li>
+                    <li>JSON 解析</li>
+                    <li>请求日志</li>
+                </ul>
+
+                <h3>删除</h3>
+                <ul>
+                    <li>AgentBridgeBackend</li>
+                    <li>AgentCliBackend</li>
+                    <li>HybridBackend</li>
+                    <li>ConfigResolver</li>
+                    <li>多层 TaskConfig/ModelConfig/ProviderConfig</li>
+                    <li>自动 fallback</li>
+                </ul>
+
+                <div class="callout callout-warning">
+                    <strong>重要</strong>：正式版不应静默切换模型。失败就明确失败；需要 fallback 时由配置显式指定第二模型。
+                </div>
+            </section>
+
+            <section id="prompt">
+                <h2>Prompt 设计</h2>
+                <h3>只保留四个运行 prompt</h3>
+                <ul>
+                    <li><code>text.yaml</code></li>
+                    <li><code>table.yaml</code></li>
+                    <li><code>structure.yaml</code></li>
+                    <li><code>adjudicate.yaml</code></li>
+                </ul>
+
+                <h3><code>manifest.yaml</code></h3>
+                <div class="code-block">
+schema_version: <span class="str">1</span>
+
+prompts:
+  text:
+    file: text.yaml
+    version: <span class="str">"1.0.0"</span>
+  table:
+    file: table.yaml
+    version: <span class="str">"1.0.0"</span>
+  structure:
+    file: structure.yaml
+    version: <span class="str">"1.0.0"</span>
+  adjudicate:
+    file: adjudicate.yaml
+    version: <span class="str">"1.0.0"</span>
+                </div>
+
+                <div class="callout callout-success">
+                    <strong>唯一来源</strong>：运行时不再选择 <code>best.yaml</code>，也不加载实验历史。Prompt 实验在单独的 benchmark/experiments 仓库中进行；选定版本后复制进入正式包并随软件发布。
+                </div>
+            </section>
+
+            <section id="validation">
+                <h2>验证与修复</h2>
+                <p>将以下文件合并为一个 <code>chemistry/validate.py</code>：</p>
+                <ul>
+                    <li><code>smiles_validator.py</code></li>
+                    <li><code>semantic_validator.py</code></li>
+                    <li><code>duplicate_classifier.py</code></li>
+                    <li><code>repair_loop.py</code></li>
+                    <li><code>rdkit_validator.py</code></li>
+                    <li><code>stereo_preprocessor.py</code></li>
+                </ul>
+
+                <h3>统一 Issue 编码</h3>
+                <table>
+                    <thead><tr><th>编码</th><th>含义</th></tr></thead>
+                    <tbody>
+                        <tr><td>V001</td><td>SMILES_PARSE_FAILED</td></tr>
+                        <tr><td>V002</td><td>VALENCE_INVALID</td></tr>
+                        <tr><td>V003</td><td>STEREO_UNSPECIFIED</td></tr>
+                        <tr><td>V004</td><td>DUPLICATE_STRUCTURE</td></tr>
+                        <tr><td>V005</td><td>LABEL_STRUCTURE_CONFLICT</td></tr>
+                        <tr><td>V006</td><td>ROLE_INCONSISTENT</td></tr>
+                        <tr><td>V007</td><td>STRUCTURE_COLLAPSE</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="callout callout-danger">
+                    <strong>验证原则</strong>：
+                    <ol style="margin:8px 0 0 18px;">
+                        <li>验证器只报告问题。</li>
+                        <li>允许确定性 canonicalization。</li>
+                        <li>不允许自动 LLM 修改原始 SMILES。</li>
+                        <li>修复建议进入 <code>suggested_value</code>。</li>
+                        <li>所有实际修正必须经过 Assembler 明确采用或人工审阅。</li>
+                    </ol>
+                </div>
+
+                <p>这样可以删除当前复杂且难以验证的自动 repair loop。</p>
+            </section>
+
+            <section id="assembler">
+                <h2>Assembler 与 Oracle</h2>
+
+                <h3>DeterministicAssembler</h3>
+                <p>Assembler 按固定规则执行：</p>
+                <ol>
+                    <li>标准化 compound label。</li>
+                    <li>合并重复 ReactionCandidate。</li>
+                    <li>按标签关联 StructureCandidate。</li>
+                    <li>标签缺失时才使用页码和证据邻近度。</li>
+                    <li>计算置信度。</li>
+                    <li>附加 ValidationIssue。</li>
+                    <li>生成 ReactionRecord。</li>
+                </ol>
+
+                <div class="code-block">
+置信度 = 0.35 × reaction evidence
+       + 0.25 × structure match
+       + 0.20 × source agreement
+       + 0.20 × validation quality
+                </div>
+
+                <h3>Adjudicator（原 Oracle）</h3>
+                <p>只处理：</p>
+                <ul>
+                    <li>多个候选结构冲突。</li>
+                    <li>产品/底物角色冲突。</li>
+                    <li>多个表格行对应同一 reaction。</li>
+                    <li>证据相互矛盾。</li>
+                </ul>
+
+                <div class="callout callout-danger">
+                    <strong>Adjudicator 不得</strong>：创建原始候选；修改无歧义记录；覆盖 RDKit 硬错误；无证据生成 SMILES。
+                </div>
+
+                <p>默认关闭，只有 <code>needs_review</code> 记录才可能调用。</p>
+            </section>
+
+            <section id="manual">
+                <h2>自动与半自动统一</h2>
+                <div class="callout callout-danger">
+                    <strong>彻底删除 SemiManualOrchestrator</strong>。
+                </div>
+
+                <p>人工 SMILES 作为外部 StructureCandidate 输入：</p>
+
+                <div class="code-block">
+chemex-lit run paper.pdf --structures manual_structures.jsonl
+
+# 或者：
+chemex-lit resume outputs/run-id --structures manual_structures.jsonl
+                </div>
+
+                <p>自动模式和人工模式只在 StructureCandidate 来源上不同：</p>
+                <ul>
+                    <li>自动：StructureExtractor → StructureCandidate</li>
+                    <li>人工：manual.jsonl → StructureCandidate</li>
+                </ul>
+
+                <div class="callout callout-success">
+                    <strong>统一后处理链</strong>：后续验证、组装、审阅完全相同。这可以消除大量自动/半自动重复逻辑。
+                </div>
+            </section>
+
+            <section id="store">
+                <h2>ArtifactStore 与恢复</h2>
+
+                <h3>固定输出结构</h3>
+                <div class="tree">
+                    <div class="dir">outputs/</run_id>/</div>
+                    <div><span class="indent"></span><span class="file">manifest.json</span></div>
+                    <div><span class="indent"></span><span class="file">document.json</span></div>
+                    <div><span class="indent"></span><span class="file">evidence.jsonl</span></div>
+                    <div><span class="indent"></span><span class="dir">candidates/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="file">reactions.jsonl</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="file">structures.jsonl</span></div>
+                    <div><span class="indent"></span><span class="dir">validation/</span></div>
+                    <div><span class="indent"></span><span class="indent"></span><span class="file">issues.jsonl</span></div>
+                    <div><span class="indent"></span><span class="file">records.jsonl</span></div>
+                    <div><span class="indent"></span><span class="file">review.jsonl</span></div>
+                    <div><span class="indent"></span><span class="file">review.html</span></div>
+                    <div><span class="indent"></span><span class="file">run.log</span></div>
+                </div>
+
+                <h3><code>manifest.json</code> 关键字段</h3>
+                <div class="code-block">
+{
+  <span class="str">"run_id"</span>: <span class="str">"..."</span>,
+  <span class="str">"chemex_version"</span>: <span class="str">"1.0.0"</span>,
+  <span class="str">"schema_version"</span>: <span class="str">"1.0"</span>,
+  <span class="str">"input_sha256"</span>: <span class="str">"..."</span>,
+  <span class="str">"config_sha256"</span>: <span class="str">"..."</span>,
+  <span class="str">"prompt_versions"</span>: {},
+  <span class="str">"models"</span>: {},
+  <span class="str">"stages"</span>: {
+    <span class="str">"mineru"</span>: {
+      <span class="str">"status"</span>: <span class="str">"complete"</span>,
+      <span class="str">"input_hash"</span>: <span class="str">"..."</span>,
+      <span class="str">"output"</span>: <span class="str">"document.json"</span>
+    }
+  }
+}
+                </div>
+
+                <h3>恢复规则</h3>
+                <ul class="checklist">
+                    <li>Stage 完成且输入哈希不变：跳过。</li>
+                    <li>输入或配置变化：从该 Stage 开始重新执行。</li>
+                    <li>文件写入采用临时文件加原子替换。</li>
+                    <li>不再维护多套 checkpoint 格式。</li>
+                </ul>
+            </section>
+
+            <section id="config">
+                <h2>配置精简</h2>
+
+                <div class="code-block">
+schema_version: <span class="str">1</span>
+
+output_dir: outputs
+
+mineru:
+  base_url: https://mineru.net
+  timeout: <span class="str">600</span>
+
+models:
+  text:
+    base_url: https://api.example.com/v1
+    model: text-model
+    api_key_env: CHEMEX_TEXT_API_KEY
+    timeout: <span class="str">300</span>
+
+  vision:
+    base_url: https://api.example.com/v1
+    model: vision-model
+    api_key_env: CHEMEX_VISION_API_KEY
+    timeout: <span class="str">180</span>
+
+pipeline:
+  extraction_workers: <span class="str">3</span>
+  image_workers: <span class="str">1</span>
+  adjudicate_ambiguous: <span class="str">false</span>
+                </div>
+
+                <h3>删除</h3>
+                <ul>
+                    <li><code>credentials.yaml</code> 支持</li>
+                    <li>任意层级环境变量覆盖</li>
+                    <li>provider→model→task 三层解析</li>
+                    <li>已禁用功能的大段注释配置</li>
+                    <li>代码存在但配置声明“已移除”的 backend</li>
+                    <li>数十个 feature flag</li>
+                </ul>
+
+                <div class="callout callout-purple">
+                    <strong>API Key 仅通过明确环境变量提供</strong>。
+                </div>
+            </section>
+
+            <section id="cli">
+                <h2>CLI 精简</h2>
+
+                <h3>正式版最多保留七个入口</h3>
+                <table>
+                    <thead><tr><th>命令</th><th>用途</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>chemex-lit run <pdf></code></td><td>运行管线</td></tr>
+                        <tr><td><code>chemex-lit resume <run-dir></code></td><td>恢复运行</td></tr>
+                        <tr><td><code>chemex-lit status <run-dir></code></td><td>查看状态</td></tr>
+                        <tr><td><code>chemex-lit review <run-dir></code></td><td>生成审阅页面</td></tr>
+                        <tr><td><code>chemex-lit review-apply <run-dir> <corrections.json></code></td><td>应用审阅修正</td></tr>
+                        <tr><td><code>chemex-lit evaluate <run-dir> --gold <gold.jsonl></code></td><td>金标准评估</td></tr>
+                        <tr><td><code>chemex-lit check</code></td><td>依赖检查（加 <code>--show-config</code> 查看配置）</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>删除或延后</h3>
+                <ul>
+                    <li><code>tasks</code></li>
+                    <li><code>baseline</code> 多层子命令</li>
+                    <li><code>harness</code></li>
+                    <li><code>serve</code></li>
+                    <li><code>repair-assets</code></li>
+                    <li>单独 <code>semi</code> 命令组（由 <code>--structures</code> 替代）</li>
+                    <li><code>batch</code>；v1 可通过 shell/脚本循环完成</li>
+                </ul>
+            </section>
+
+            <section id="delete">
+                <h2>应删除的旧实现</h2>
+                <p><strong>不是移动，而是删除。</strong></p>
+
+                <table>
+                    <thead><tr><th>当前模块</th><th>新处理</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>pipeline_steps.py</code></td><td>删除；Pipeline 直接调用组件</td></tr>
+                        <tr><td><code>semi_manual.py</code></td><td>删除；以外部 StructureCandidate 替代</td></tr>
+                        <tr><td><code>agent_bridge.py</code></td><td>移出核心</td></tr>
+                        <tr><td><code>backends/agent_*</code></td><td>删除</td></tr>
+                        <tr><td><code>hybrid_backend.py</code></td><td>删除</td></tr>
+                        <tr><td><code>config_resolver.py</code></td><td>删除</td></tr>
+                        <tr><td><code>harness/</code></td><td>移至实验仓库</td></tr>
+                        <tr><td><code>webui/</code></td><td>v1 删除</td></tr>
+                        <tr><td><code>mcp/</code></td><td>v1 删除</td></tr>
+                        <tr><td><code>evolution_loop.py</code></td><td>删除</td></tr>
+                        <tr><td><code>graph_repair_agent.py</code></td><td>删除</td></tr>
+                        <tr><td><code>molcode_lite.py</code></td><td>移至实验仓库</td></tr>
+                        <tr><td><code>decimer_segmenter.py</code></td><td>删除，除非有明确质量收益</td></tr>
+                        <tr><td>多个 Reviewer</td><td>合并成 <code>review.py</code></td></tr>
+                        <tr><td>G1–G4 多模块</td><td>合并成 <code>chemistry/validate.py</code></td></tr>
+                        <tr><td><code>layout_indexer.py</code></td><td>合并进 DocumentBundle 构建</td></tr>
+                        <tr><td><code>baseline*.py</code></td><td>合并到 evaluation</td></tr>
+                        <tr><td><code>toolkit/_archive</code></td><td>删除，由 Git tag 保存</td></tr>
+                        <tr><td><code>skills/</code> 运行时逻辑</td><td>移出正式包</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="approach">
+                <h2>重构实施方式</h2>
+                <div class="callout callout-danger">
+                    <strong>不要在原包上边移动边修复。</strong>建议建立新包并行实现。
+                </div>
+
+                <div class="card">
+                    <h3>阶段 A：冻结旧行为</h3>
+                    <ul class="checklist">
+                        <li>保存脱敏后的 <code>archive/pre-v1</code> tag</li>
+                        <li>选择 3–5 个代表性运行结果</li>
+                        <li>建立 characterization tests</li>
+                        <li>冻结正式 ReactionRecord 1.0 Schema</li>
+                    </ul>
+                </div>
+
+                <div class="card">
+                    <h3>阶段 B：建立新核心</h3>
+                    <p>按以下顺序实现：</p>
+                    <ol>
+                        <li><code>models.py</code></li>
+                        <li><code>store.py</code></li>
+                        <li><code>config.py</code></li>
+                        <li><code>llm/client.py</code></li>
+                        <li><code>mineru.py</code></li>
+                        <li>三个 Extractor</li>
+                        <li>Validator</li>
+                        <li>Assembler</li>
+                        <li>Pipeline</li>
+                        <li>Review</li>
+                        <li>CLI</li>
+                    </ol>
+
+                    <h3>阶段 C：能力迁移</h3>
+                    <p>每项能力都必须满足：</p>
+                    <div class="code-block">
+旧 fixture 输入
+    ↓
+新模块输出
+    ↓
+Schema 合法
+    ↓
+关键字段不低于旧基线
+                    </div>
+                    <p>不迁移旧类名和私有方法，只迁移业务行为。</p>
+
+                    <h3>阶段 D：删除旧包</h3>
+                    <ul class="checklist">
+                        <li>当新核心完成完整回归后，删除原 <code>chemex/</code></li>
+                        <li><code>src/chemex_lit/</code> 成为唯一实现</li>
+                        <li>删除兼容层</li>
+                        <li>发布 <code>1.0.0rc1</code></li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="criteria">
+                <h2>最终判定标准</h2>
+                <p>重构完成后应达到：</p>
+
+                <ul class="checklist">
+                    <li>只有一条生产 Pipeline。</li>
+                    <li>自动和人工输入共用同一条后处理链。</li>
+                    <li>不超过 30 个生产模块。</li>
+                    <li>不存在超过约 500 行的核心业务模块。</li>
+                    <li>所有运行资源包含在 wheel 中。</li>
+                    <li>默认测试命令覆盖全部测试。</li>
+                    <li>没有运行时根目录依赖。</li>
+                    <li>没有重复 Schema、Prompt、Reviewer、Checkpoint。</li>
+                    <li>没有自动静默 fallback。</li>
+                    <li>没有“0 记录但 success”。</li>
+                    <li>实验代码不随正式 wheel 安装。</li>
+                    <li>删除旧代码不会影响正式 v1 功能。</li>
+                </ul>
+
+                <div class="callout callout-success">
+                    <strong>总结</strong>：这次重构最重要的原则是——以新的数据契约和单一 Pipeline 为中心重新实现，不以保留旧类和旧目录为目标。
+                </div>
+            </section>
+
+            <div class="footer">
+                生成日期：2026-07-17 · ChemEx-Lit v1 破坏性重构方案。
+            </div>
+        </main>
+    </div>
+</body>
+</html>

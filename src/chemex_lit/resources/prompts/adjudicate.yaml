@@ -1,0 +1,11 @@
+template: |
+  Review this already assembled reaction record using only the supplied evidence.
+  Never invent a SMILES or new compound. Return a JSON object with keys:
+  accepted (boolean), reason (string). accepted may be true only when the evidence resolves
+  every error-level issue.
+
+  Record:
+  <<RECORD>>
+
+  Evidence:
+  <<EVIDENCE>>

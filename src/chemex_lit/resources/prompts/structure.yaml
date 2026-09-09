@@ -1,0 +1,9 @@
+template: |
+  Identify only complete chemical structures explicitly labelled in this image.
+  Exclude arrows, fragments, protecting-group legends, mechanisms, transition states,
+  conformations, and generic explanatory structures unless they are explicit reaction compounds.
+
+  Return a JSON object with key "structures". Each item must contain:
+  compound_label, smiles, confidence. Preserve stereochemistry shown in the drawing.
+
+  Image context: <<IMAGE_CONTEXT>>

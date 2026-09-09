@@ -1,0 +1,6 @@
+include LICENSE
+prune legacy
+prune outputs
+prune chemex-lit-skill
+prune submissions
+global-exclude *.pyc

@@ -1,0 +1,35 @@
+# Secrets
+credentials.yaml
+.env
+legacy/
+
+# Outputs (regenerable)
+outputs/
+experiments/
+/submissions/
+
+# Local plans and scratch (root-level only)
+.omo/
+/*.pdf
+/*.html
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.so
+.coverage
+coverage.xml
+
+# Tools
+.pytest_cache/
+.ruff_cache/
+.venv/
+node_modules/
+
+# IDE
+.vscode/
+.idea/

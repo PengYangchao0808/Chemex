@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chemex-lit"
+version = "0.0.0"
+description = "Traceable chemical reaction extraction from literature PDFs"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    {name = "ChemEx Team"}
+]
+keywords = ["chemistry", "literature", "extraction", "smiles", "reaction", "mineru", "multimodal"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "httpx>=0.25",
+    "pillow>=9.0",
+    "rdkit>=2023.9.1",
+    "jinja2>=3.1",
+    "platformdirs>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.0",
+    "ruff>=0.5",
+    "pyright>=1.1",
+    "build>=1.2",
+    "twine>=5.0",
+]
+
+[project.scripts]
+chemex-lit = "chemex_lit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["chemex_lit*"]
+
+[tool.setuptools.package-data]
+chemex_lit = ["resources/**/*.yaml", "resources/**/*.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --tb=short --cov=chemex_lit --cov-fail-under=70"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pyright]
+include = ["src/chemex_lit"]
+extraPaths = ["src"]
+reportMissingTypeArgument = "none"

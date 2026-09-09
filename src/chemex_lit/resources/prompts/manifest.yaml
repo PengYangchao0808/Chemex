@@ -1,0 +1,14 @@
+schema_version: 1
+prompts:
+  text:
+    file: text.yaml
+    version: 1.0.0
+  table:
+    file: table.yaml
+    version: 1.1.0
+  structure:
+    file: structure.yaml
+    version: 1.0.0
+  adjudicate:
+    file: adjudicate.yaml
+    version: 1.0.0
