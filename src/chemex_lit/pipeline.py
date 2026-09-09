@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar, cast, get_args
 
 import rdkit
+from pydantic import BaseModel, ValidationError
 
 from chemex_lit import __version__
 from chemex_lit.adjudicator import Adjudicator
@@ -22,6 +24,8 @@ from chemex_lit.extraction import (
     stable_id,
     structure_candidates_from_payload,
 )
+from chemex_lit.extraction.structure import StructureExtractor
+from chemex_lit.extraction.table import TableExtractor
 from chemex_lit.extraction.tasks import (
     build_adjudication_tasks,
     build_structure_tasks,
@@ -29,6 +33,9 @@ from chemex_lit.extraction.tasks import (
     build_text_tasks,
     task_id,
 )
+from chemex_lit.extraction.text import TextExtractor
+from chemex_lit.llm import LLMClient, PromptRegistry
+from chemex_lit.mineru import MinerUAdapter
 from chemex_lit.models import (
     AdjudicationDecision,
     CandidateSubmission,
@@ -42,15 +49,19 @@ from chemex_lit.models import (
     ReactionRecord,
     RunMode,
     RunRequest,
+    RunStatus,
     RunSummary,
     StructureCandidate,
     SubmissionProducer,
     TaskAssets,
     TaskChannelStatus,
     ValidationIssue,
+    normalize_mode,
 )
 from chemex_lit.review import generate_review
 from chemex_lit.store import ArtifactStore, sha256_file, sha256_text
+
+logger = logging.getLogger(__name__)
 
 _TASK_STATE_PATH = "tasks/state.json"
 _EXTRACTION_TASKS_PATH = "tasks/extraction.jsonl"
@@ -67,6 +78,9 @@ class ApplyResult:
     fulfilled_tasks: int
     output_count: int
     noop_tasks: int
+
+
+_T = TypeVar("_T", bound=BaseModel)
 
 
 def build_producer_plan(
@@ -120,6 +134,301 @@ def _host_spec(config: AppConfig, channel: Channel) -> ProducerSpec:
         policy=route.policy,
         fallbacks=list(route.fallbacks) or None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Workflow API: one public function per CLI command (the execution kernel).
+# ---------------------------------------------------------------------------
+
+
+def run_pdf(
+    config: AppConfig,
+    *,
+    pdf_path: Path,
+    output_dir: Path | None = None,
+    mode: RunMode = "auto",
+    external_structures: Path | None = None,
+    adjudicate: bool = False,
+) -> RunSummary:
+    """Run the extraction pipeline from a PDF entry point."""
+
+    effective = _adjudicate_config(config, adjudicate=adjudicate)
+    run_dir = output_dir or _default_run_dir(effective, pdf_path)
+    pipeline = build_pipeline(effective)
+    return pipeline.run(
+        RunRequest(
+            pdf_path=pdf_path,
+            output_dir=run_dir,
+            external_structures=external_structures,
+            resume=False,
+            mode=mode,
+        )
+    )
+
+
+def resume_run(config: AppConfig, run_dir: Path) -> RunSummary:
+    """Resume a persisted run using its manifest metadata."""
+
+    store = ArtifactStore(run_dir)
+    manifest = store.manifest()
+    status = str(manifest.get("status", ""))
+    if status == "cancelled":
+        raise ChemExError("Cancelled runs cannot be resumed")
+    mode = _manifest_mode(manifest)
+    if "producer_plan" not in manifest:
+        raise ArtifactError("Run manifest is missing producer_plan; resume requires a P1 manifest")
+
+    effective = _adjudicate_config(config, adjudicate=_manifest_adjudicate_flag(manifest))
+    pipeline = build_pipeline(effective)
+    return pipeline.run(
+        RunRequest(
+            pdf_path=Path(str(manifest["input_path"])),
+            output_dir=run_dir,
+            resume=True,
+            mode=mode,
+        )
+    )
+
+
+def submit_files(
+    run_dir: Path,
+    files: list[Path],
+    *,
+    kind: Literal["candidates", "adjudications"] = "candidates",
+    force: bool = False,
+) -> dict[str, Any]:
+    """Validate and persist external task submissions for a run."""
+
+    if not files:
+        raise ChemExError("At least one submission file is required")
+
+    store = ArtifactStore(run_dir)
+    manifest = store.manifest()
+    status = str(manifest.get("status", ""))
+    if status == "cancelled":
+        raise ChemExError("Cancelled runs cannot accept submissions")
+
+    state = _read_task_state(store)
+    task_file = _EXTRACTION_TASKS_PATH if kind == "candidates" else _ADJUDICATION_TASKS_PATH
+    if not (store.root / task_file).is_file():
+        raise ArtifactError(f"Task file not found for {kind}: {store.root / task_file}")
+    tasks = store.read_models(task_file, ExtractionTask)
+
+    file_index = _submission_file_index(state)
+    bucket = file_index.setdefault(kind, {})
+    parsed_files: list[tuple[Path, str, list[CandidateSubmission] | list[AdjudicationDecision]]] = []
+    file_summaries: list[dict[str, Any]] = []
+    duplicate_count = 0
+
+    for path in files:
+        file_hash = sha256_file(path)
+        if file_hash in bucket:
+            file_summaries.append(
+                {
+                    "file": str(path),
+                    "sha256": file_hash,
+                    "status": "duplicate",
+                }
+            )
+            duplicate_count += 1
+            continue
+        if kind == "candidates":
+            parsed = _read_jsonl_models(path, CandidateSubmission)
+        else:
+            parsed = _read_jsonl_models(path, AdjudicationDecision)
+        parsed_files.append((path, file_hash, parsed))
+
+    applied_count = 0
+    if parsed_files:
+        if kind == "candidates":
+            submissions = [
+                item
+                for _, _, parsed in parsed_files
+                for item in parsed
+                if isinstance(item, CandidateSubmission)
+            ]
+            result = apply_submissions(store, None, submissions, tasks, state, force=force)
+        else:
+            decisions = [
+                item
+                for _, _, parsed in parsed_files
+                for item in parsed
+                if isinstance(item, AdjudicationDecision)
+            ]
+            if force:
+                apply_force_invalidation(store)
+                _reset_fulfilled_task_entries(state, decisions)
+            result = apply_decisions(store, decisions, tasks, state)
+        applied_count = result.output_count
+
+        refreshed_state = _read_task_state(store)
+        bucket = _submission_file_index(refreshed_state).setdefault(kind, {})
+        submitted_at = utc_now()
+        for path, file_hash, _ in parsed_files:
+            bucket[file_hash] = {
+                "file_name": path.name,
+                "file_path": path.resolve().as_posix(),
+                "sha256": file_hash,
+                "submitted_at": submitted_at,
+            }
+            file_summaries.append(
+                {
+                    "file": str(path),
+                    "sha256": file_hash,
+                    "status": "applied",
+                }
+            )
+        store.write_json(_TASK_STATE_PATH, refreshed_state)
+        state = refreshed_state
+    else:
+        store.write_json(_TASK_STATE_PATH, state)
+
+    awaiting = _awaiting_task_ids(tasks, state)
+    store.set_status("awaiting_input" if awaiting else "ready")
+    return {
+        "status": "awaiting_input" if awaiting else "ready",
+        "applied": applied_count,
+        "awaiting": awaiting,
+        "files": file_summaries,
+        "duplicates": duplicate_count,
+    }
+
+
+def run_status(run_dir: Path) -> RunSummary:
+    """Return the machine-readable run summary shared by all commands."""
+
+    store = ArtifactStore(run_dir)
+    manifest = store.manifest()
+    state = _read_task_state(store)
+    records_count = 0
+    review_count = 0
+    if (store.root / _FINAL_RECORDS_OUTPUT).is_file():
+        records = store.read_models(_FINAL_RECORDS_OUTPUT, ReactionRecord)
+        records_count = len(records)
+        review_count = sum(item.review_status == "needs_review" for item in records)
+    stages = {
+        name: str(data.get("status", "unknown"))
+        for name, data in manifest.get("stages", {}).items()
+        if isinstance(data, dict)
+    }
+    raw_status = manifest.get("status", "running")
+    if raw_status not in get_args(RunStatus):
+        raise ArtifactError(f"Run manifest has an invalid status {raw_status!r}")
+    return RunSummary(
+        run_id=str(manifest.get("run_id", "")),
+        status=cast(RunStatus, raw_status),
+        records_count=records_count,
+        review_count=review_count,
+        run_dir=store.root.as_posix(),
+        stages=stages,
+        awaiting=awaiting_task_ids(state),
+        tasks=task_channel_counts(state),
+    )
+
+
+def build_pipeline(config: AppConfig) -> Pipeline:
+    """Construct the production pipeline with real adapters."""
+
+    llm = LLMClient()
+    prompts = PromptRegistry()
+    reasoning_model, used_reasoning_fallback = config.models.reasoning_spec()
+    if config.pipeline.adjudicate_ambiguous and used_reasoning_fallback:
+        logger.warning(
+            "Reasoning model tier not configured; falling back to text model %s",
+            reasoning_model.model,
+        )
+    adjudicator = (
+        Adjudicator(llm, prompts, reasoning_model)
+        if config.pipeline.adjudicate_ambiguous
+        else None
+    )
+    return Pipeline(
+        config=config,
+        prompts=prompts,
+        mineru=MinerUAdapter(config.mineru),
+        text_extractor=TextExtractor(
+            llm,
+            prompts,
+            config.models.text,
+            config.pipeline.max_text_chars,
+        ),
+        table_extractor=TableExtractor(llm, prompts, config.models.vision),
+        structure_extractor=StructureExtractor(
+            llm,
+            prompts,
+            config.models.vision,
+            config.pipeline.image_workers,
+        ),
+        validator=Validator(),
+        assembler=Assembler(),
+        adjudicator=adjudicator,
+    )
+
+
+def _adjudicate_config(config: AppConfig, *, adjudicate: bool) -> AppConfig:
+    if not adjudicate:
+        return config
+    return config.model_copy(
+        update={"pipeline": config.pipeline.model_copy(update={"adjudicate_ambiguous": True})}
+    )
+
+
+def _default_run_dir(config: AppConfig, pdf_path: Path) -> Path:
+    """Return the default run directory for one PDF."""
+
+    return config.output_dir / f"{pdf_path.stem}-{sha256_file(pdf_path)[:8]}"
+
+
+def _read_jsonl_models(path: Path, model: type[_T]) -> list[_T]:
+    """Read one JSONL file into validated Pydantic models."""
+
+    result: list[_T] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ChemExError(f"Invalid JSON in {path.name}:{number}: {exc}") from exc
+        try:
+            result.append(model.model_validate(payload))
+        except ValidationError as exc:
+            raise ChemExError(f"Invalid {model.__name__} in {path.name}:{number}: {exc}") from exc
+    if not result:
+        raise ChemExError(f"Submission file is empty: {path}")
+    return result
+
+
+def _manifest_mode(manifest: dict[str, Any]) -> RunMode:
+    """Extract and normalize the run mode from a manifest.
+
+    Legacy manifests may still carry deprecated alias values; they are
+    converted to the canonical mode so resume keeps working across the
+    v1 mode convergence.
+    """
+
+    raw = manifest.get("mode")
+    if not isinstance(raw, str):
+        raise ArtifactError("Run manifest is missing a valid mode")
+    try:
+        return normalize_mode(raw)
+    except ChemExError as exc:
+        raise ArtifactError(
+            f"Run manifest has an invalid mode {raw!r}; expected auto, semi, or agent"
+            " (legacy aliases human-ocsr-agent and auto-agent are accepted)"
+        ) from exc
+
+
+def _manifest_adjudicate_flag(manifest: dict[str, Any]) -> bool:
+    """Return the persisted adjudication flag from manifest config when available."""
+
+    config = manifest.get("config")
+    if not isinstance(config, dict):
+        return False
+    pipeline = config.get("pipeline")
+    if not isinstance(pipeline, dict):
+        return False
+    return bool(pipeline.get("adjudicate_ambiguous", False))
 
 
 def apply_submissions(
@@ -1041,6 +1350,39 @@ def _task_entries(state: dict[str, Any]) -> dict[str, Any]:
     return tasks
 
 
+def _submission_file_index(state: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
+    files = state.setdefault("submission_files", {})
+    if not isinstance(files, dict):
+        raise ArtifactError("Task state submission_files must be a JSON object")
+    return files
+
+
+def _awaiting_task_ids(tasks: list[ExtractionTask], state: dict[str, Any]) -> list[str]:
+    entries = _task_entries(state)
+    return sorted(
+        task.task_id
+        for task in tasks
+        if str(entries.get(task.task_id, {}).get("status", "awaiting")) == "awaiting"
+    )
+
+
+def _reset_fulfilled_task_entries(
+    state: dict[str, Any],
+    decisions: list[AdjudicationDecision],
+) -> None:
+    """Reset fulfilled decision tasks so force resubmission can replace them."""
+
+    entries = _task_entries(state)
+    for decision in decisions:
+        entry = entries.get(decision.task_id)
+        if not isinstance(entry, dict):
+            continue
+        entry["status"] = "awaiting"
+        entry.pop("submission_hash", None)
+        entry.pop("decision", None)
+        entry.pop("producer", None)
+
+
 def _set_submit_status(store: ArtifactStore, state: dict[str, Any]) -> None:
     store.set_status("awaiting_input" if awaiting_task_ids(state) else "ready")
 
@@ -1064,7 +1406,7 @@ def task_channel_counts(
 ) -> dict[str, TaskChannelStatus]:
     """Summarize awaiting/fulfilled counts per external task kind.
 
-    Shared by the pipeline summary and the application service so the
+    Shared by the pipeline summary and the workflow status command so the
     machine-readable envelope stays identical across commands.
     """
 

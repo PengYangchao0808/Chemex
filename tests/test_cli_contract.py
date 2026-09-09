@@ -17,7 +17,7 @@ from click.testing import CliRunner
 import pytest
 
 from chemex_lit.adjudicator import Adjudicator
-import chemex_lit.application.service as service_module
+import chemex_lit.pipeline as pipeline_module
 from chemex_lit.assembly import Assembler
 from chemex_lit.chemistry import Validator
 from chemex_lit.cli import main
@@ -198,7 +198,7 @@ def _parse_json(result: Any) -> dict[str, Any]:
 
 def _patch(monkeypatch: pytest.MonkeyPatch, mineru: ScenarioMinerU, *, empty: bool = False) -> None:
     monkeypatch.setattr(
-        service_module, "_build_pipeline", _pipeline_factory(mineru, empty=empty)
+        pipeline_module, "build_pipeline", _pipeline_factory(mineru, empty=empty)
     )
 
 

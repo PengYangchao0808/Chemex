@@ -28,8 +28,6 @@ _SRC = REPO_ROOT / "src"
 if (_SRC / "chemex_lit").is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from chemex_lit.application import ChemExService  # noqa: E402
-import chemex_lit.application.service as service_module  # noqa: E402
 from chemex_lit.assembly import Assembler  # noqa: E402
 from chemex_lit.chemistry import Validator  # noqa: E402
 from chemex_lit.config import AppConfig, load_config  # noqa: E402
@@ -43,7 +41,8 @@ from chemex_lit.models import (  # noqa: E402
     RunSummary,
     StructureCandidate,
 )
-from chemex_lit.pipeline import Pipeline  # noqa: E402
+from chemex_lit.pipeline import Pipeline, resume_run, run_pdf, submit_files  # noqa: E402
+import chemex_lit.pipeline as pipeline_module  # noqa: E402
 from chemex_lit.store import ArtifactStore  # noqa: E402
 
 RUN_SUMMARY_KEYS = {
@@ -111,10 +110,6 @@ class FakeReactionExtractor:
             )
         ]
 
-    def extract(self, document: DocumentBundle) -> list[ReactionCandidate]:
-        del document
-        return []
-
 
 class FakeStructureExtractor:
     workers = 1
@@ -128,10 +123,6 @@ class FakeStructureExtractor:
                 evidence_ids=list(task.evidence_ids),
             )
         ]
-
-    def extract(self, document: DocumentBundle) -> list[StructureCandidate]:
-        del document
-        return []
 
 
 def _mock_pipeline(config: AppConfig) -> Pipeline:
@@ -173,8 +164,8 @@ def _load_validator():
 
 
 def main() -> int:
-    service_module._build_pipeline = _mock_pipeline
-    service = ChemExService(load_config())
+    pipeline_module.build_pipeline = _mock_pipeline
+    config = load_config()
 
     with tempfile.TemporaryDirectory(prefix="chemex-smoke-") as tmp:
         tmp_path = Path(tmp)
@@ -182,7 +173,7 @@ def main() -> int:
         pdf.write_bytes(b"pdf")
         run_dir = tmp_path / "outputs" / "paper-smoke"
 
-        summary = service.run(pdf_path=pdf, output_dir=run_dir, mode="semi")
+        summary = run_pdf(config, pdf_path=pdf, output_dir=run_dir, mode="semi")
         if failed := _check_envelope("run --mode semi", summary):
             return failed
         if summary.status != "awaiting_input":
@@ -225,7 +216,7 @@ def main() -> int:
                 return _fail("offline validation", "; ".join(errors))
         print("[OK]   offline validation: submission.jsonl matches the contract")
 
-        result = service.submit(run_dir, [submission])
+        result = submit_files(run_dir, [submission])
         if result["status"] != "ready" or result["awaiting"]:
             return _fail(
                 "submit",
@@ -233,7 +224,7 @@ def main() -> int:
             )
         print("[OK]   submit: status=ready")
 
-        final = service.resume(run_dir)
+        final = resume_run(config, run_dir)
         if failed := _check_envelope("resume", final):
             return failed
         if final.status != "success":

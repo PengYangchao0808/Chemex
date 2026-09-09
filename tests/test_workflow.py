@@ -4,13 +4,14 @@ import json
 from pathlib import Path
 from typing import cast
 
+from click.testing import CliRunner
 import pytest
 
 from chemex_lit.adjudicator import Adjudicator
-from chemex_lit.application import ChemExService
-import chemex_lit.application.service as service_module
+import chemex_lit.pipeline as pipeline_module
 from chemex_lit.assembly import Assembler
 from chemex_lit.chemistry import Validator
+from chemex_lit.cli import main
 from chemex_lit.config import AppConfig, load_config
 from chemex_lit.errors import ChemExError
 from chemex_lit.models import (
@@ -25,7 +26,14 @@ from chemex_lit.models import (
     StructureCandidate,
     SubmissionProducer,
 )
-from chemex_lit.pipeline import Pipeline
+from chemex_lit.pipeline import (
+    Pipeline,
+    build_pipeline,
+    resume_run,
+    run_pdf,
+    run_status,
+    submit_files,
+)
 from chemex_lit.store import ArtifactStore
 
 
@@ -79,18 +87,10 @@ class TextExtractor:
             )
         ]
 
-    def extract(self, document: DocumentBundle) -> list[ReactionCandidate]:
-        del document
-        return []
-
 
 class TableExtractor:
     def fulfill(self, task: ExtractionTask) -> list[ReactionCandidate]:
         del task
-        return []
-
-    def extract(self, document: DocumentBundle) -> list[ReactionCandidate]:
-        del document
         return []
 
 
@@ -103,10 +103,6 @@ class StructureExtractor:
             StructureCandidate(candidate_id="s7", compound_label="7", smiles="CC"),
             StructureCandidate(candidate_id="s8", compound_label="8", smiles="CCO"),
         ]
-
-    def extract(self, document: DocumentBundle) -> list[StructureCandidate]:
-        del document
-        return []
 
 
 class PassThroughAdjudicator:
@@ -138,11 +134,11 @@ def _patch_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
             adjudicator=adjudicator,
         )
 
-    monkeypatch.setattr(service_module, "_build_pipeline", factory)
+    monkeypatch.setattr(pipeline_module, "build_pipeline", factory)
 
 
-def _service() -> ChemExService:
-    return ChemExService(load_config())
+def _config() -> AppConfig:
+    return load_config()
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
@@ -164,23 +160,23 @@ def _structure_submission(task: ExtractionTask, smiles7: str = "CC", smiles8: st
 def test_build_pipeline_wires_table_extractor_to_vision_model() -> None:
     config = load_config()
 
-    pipeline = service_module._build_pipeline(config)
+    pipeline = build_pipeline(config)
 
     assert pipeline.table_extractor.model == config.models.vision
 
 
-def test_service_run_semi_returns_awaiting_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_workflow_run_semi_returns_awaiting_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_pipeline(monkeypatch)
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"pdf")
 
-    summary = _service().run(pdf_path=pdf, output_dir=tmp_path / "semi", mode="semi")
+    summary = run_pdf(_config(), pdf_path=pdf, output_dir=tmp_path / "semi", mode="semi")
 
     assert summary.status == "awaiting_input"
     assert summary.awaiting
 
 
-def test_service_submit_then_resume_matches_auto_mode(
+def test_workflow_submit_then_resume_matches_auto_mode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -189,12 +185,11 @@ def test_service_submit_then_resume_matches_auto_mode(
     pdf.write_bytes(b"pdf")
     auto_dir = tmp_path / "auto"
     semi_dir = tmp_path / "semi"
-    service = _service()
 
-    auto = service.run(pdf_path=pdf, output_dir=auto_dir, mode="auto")
+    auto = run_pdf(_config(), pdf_path=pdf, output_dir=auto_dir, mode="auto")
     assert auto.status == "success"
 
-    paused = service.run(pdf_path=pdf, output_dir=semi_dir, mode="semi")
+    paused = run_pdf(_config(), pdf_path=pdf, output_dir=semi_dir, mode="semi")
     assert paused.status == "awaiting_input"
 
     store = ArtifactStore(semi_dir)
@@ -204,18 +199,18 @@ def test_service_submit_then_resume_matches_auto_mode(
         [_structure_submission(task)],
     )
 
-    submitted = service.submit(semi_dir, [submission_file])
+    submitted = submit_files(semi_dir, [submission_file])
     assert submitted["status"] == "ready"
     assert submitted["awaiting"] == []
 
-    resumed = service.resume(semi_dir)
+    resumed = resume_run(_config(), semi_dir)
     assert resumed.status == "success"
     assert (semi_dir / "records.jsonl").read_text(encoding="utf-8") == (
         auto_dir / "records.jsonl"
     ).read_text(encoding="utf-8")
 
 
-def test_service_resubmit_identical_conflicting_and_force(
+def test_workflow_resubmit_identical_conflicting_and_force(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -223,17 +218,16 @@ def test_service_resubmit_identical_conflicting_and_force(
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"pdf")
     run_dir = tmp_path / "semi"
-    service = _service()
 
-    paused = service.run(pdf_path=pdf, output_dir=run_dir, mode="semi")
+    paused = run_pdf(_config(), pdf_path=pdf, output_dir=run_dir, mode="semi")
     assert paused.status == "awaiting_input"
 
     task = ArtifactStore(run_dir).read_models("tasks/extraction.jsonl", ExtractionTask)[0]
     first_file = _write_jsonl(tmp_path / "structures-1.jsonl", [_structure_submission(task)])
-    _ = service.submit(run_dir, [first_file])
-    _ = service.resume(run_dir)
+    _ = submit_files(run_dir, [first_file])
+    _ = resume_run(_config(), run_dir)
 
-    duplicate = service.submit(run_dir, [first_file])
+    duplicate = submit_files(run_dir, [first_file])
     assert duplicate["applied"] == 0
     assert duplicate["files"][0]["status"] == "duplicate"
 
@@ -242,9 +236,9 @@ def test_service_resubmit_identical_conflicting_and_force(
         [_structure_submission(task, smiles7="CCC", smiles8="CCO")],
     )
     with pytest.raises(ChemExError, match="Conflicting resubmission"):
-        service.submit(run_dir, [changed_file])
+        submit_files(run_dir, [changed_file])
 
-    forced = service.submit(run_dir, [changed_file], force=True)
+    forced = submit_files(run_dir, [changed_file], force=True)
     assert forced["status"] == "ready"
 
     manifest = ArtifactStore(run_dir).manifest()
@@ -259,7 +253,7 @@ def test_service_resubmit_identical_conflicting_and_force(
     assert audit_entries[-1]["type"] == "supersedes"
 
 
-def test_service_status_cancel_and_resume_after_cancel(
+def test_workflow_status_cancel_and_resume_after_cancel(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -267,30 +261,31 @@ def test_service_status_cancel_and_resume_after_cancel(
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"pdf")
     run_dir = tmp_path / "semi"
-    service = _service()
 
-    paused = service.run(pdf_path=pdf, output_dir=run_dir, mode="semi")
+    paused = run_pdf(_config(), pdf_path=pdf, output_dir=run_dir, mode="semi")
     assert paused.status == "awaiting_input"
 
-    status = service.status(run_dir)
+    status = run_status(run_dir)
     assert status.tasks["structure"].awaiting == 1
     assert status.tasks["structure"].awaiting_task_ids
 
-    service.cancel(run_dir)
-    cancelled = service.status(run_dir)
+    cancelled_result = CliRunner().invoke(main, ["cancel", str(run_dir)])
+    assert cancelled_result.exit_code == 0
+    cancelled = run_status(run_dir)
     assert cancelled.status == "cancelled"
 
     with pytest.raises(ChemExError, match="Cancelled runs cannot be resumed"):
-        service.resume(run_dir)
+        resume_run(_config(), run_dir)
 
     success_dir = tmp_path / "success"
-    success = service.run(pdf_path=pdf, output_dir=success_dir, mode="auto")
+    success = run_pdf(_config(), pdf_path=pdf, output_dir=success_dir, mode="auto")
     assert success.status == "success"
-    with pytest.raises(ChemExError, match="terminal status"):
-        service.cancel(success_dir)
+    rejected = CliRunner().invoke(main, ["cancel", str(success_dir)])
+    assert rejected.exit_code != 0
+    assert "terminal status" in str(rejected.exception)
 
 
-def test_service_submit_adjudications_then_resume_accepts_record(
+def test_workflow_submit_adjudications_then_resume_accepts_record(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -298,9 +293,9 @@ def test_service_submit_adjudications_then_resume_accepts_record(
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"pdf")
     run_dir = tmp_path / "agent"
-    service = _service()
 
-    paused = service.run(
+    paused = run_pdf(
+        _config(),
         pdf_path=pdf,
         output_dir=run_dir,
         mode="agent",
@@ -335,10 +330,10 @@ def test_service_submit_adjudications_then_resume_accepts_record(
             )
 
     candidates_file = _write_jsonl(tmp_path / "candidates.jsonl", candidate_rows)
-    submitted = service.submit(run_dir, [candidates_file], kind="candidates")
+    submitted = submit_files(run_dir, [candidates_file], kind="candidates")
     assert submitted["status"] == "ready"
 
-    adjudication_pause = service.resume(run_dir)
+    adjudication_pause = resume_run(_config(), run_dir)
     assert adjudication_pause.status == "awaiting_input"
 
     adjudication_task = ArtifactStore(run_dir).read_models("tasks/adjudication.jsonl", ExtractionTask)[0]
@@ -359,10 +354,10 @@ def test_service_submit_adjudications_then_resume_accepts_record(
         ],
     )
 
-    decisions = service.submit(run_dir, [decisions_file], kind="adjudications")
+    decisions = submit_files(run_dir, [decisions_file], kind="adjudications")
     assert decisions["status"] == "ready"
 
-    finished = service.resume(run_dir)
+    finished = resume_run(_config(), run_dir)
     assert finished.status == "success"
     records = ArtifactStore(run_dir).read_models("records.jsonl", ReactionRecord)
     assert records[0].review_status == "accepted"

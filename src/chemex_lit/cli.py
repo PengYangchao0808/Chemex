@@ -12,7 +12,6 @@ import click
 import httpx
 
 from chemex_lit import __version__
-from chemex_lit.application import ChemExService
 from chemex_lit.config import AppConfig, load_config
 from chemex_lit import profiles
 from chemex_lit.credentials import (
@@ -30,6 +29,7 @@ from chemex_lit.credentials import (
 from chemex_lit.evaluation import evaluate_files
 from chemex_lit.errors import ChemExError
 from chemex_lit.models import ReactionRecord, RunSummary, normalize_mode
+from chemex_lit.pipeline import resume_run, run_pdf, run_status, submit_files
 from chemex_lit.review import apply_corrections, generate_review
 from chemex_lit.store import ArtifactStore, atomic_write_text
 
@@ -51,7 +51,7 @@ class SubmitFileInfo(TypedDict):
 
 
 class SubmitSummary(TypedDict):
-    """Submit command summary emitted by the application service."""
+    """Submit command summary emitted by the pipeline workflow API."""
 
     status: str
     applied: int
@@ -132,7 +132,8 @@ def run(
 ) -> None:
     """Run the complete extraction pipeline."""
 
-    summary = _service(ctx).run(
+    summary = run_pdf(
+        _config(ctx),
         pdf_path=pdf_path,
         output_dir=output_dir,
         mode=normalize_mode(mode),
@@ -151,7 +152,7 @@ def run(
 def resume(ctx: click.Context, run_dir: Path, as_json: bool) -> None:
     """Resume a run from hash-validated artifacts."""
 
-    summary = _service(ctx).resume(run_dir)
+    summary = resume_run(_config(ctx), run_dir)
     _print_run_summary(summary, as_json)
 
 
@@ -185,14 +186,13 @@ def submit(
 
     if not files:
         raise click.UsageError("At least one submission file is required")
-    service = _service(ctx)
     result = cast(
         SubmitSummary,
-        cast(object, service.submit(run_dir, list(files), kind=kind, force=force)),
+        cast(object, submit_files(run_dir, list(files), kind=kind, force=force)),
     )
     resumed: RunSummary | None = None
     if resume_after_submit and result["status"] == "ready":
-        resumed = service.resume(run_dir)
+        resumed = resume_run(_config(ctx), run_dir)
 
     if as_json:
         payload: object = result
@@ -214,7 +214,7 @@ def submit(
 def status(ctx: click.Context, run_dir: Path, as_json: bool) -> None:
     """Show persisted run and task status."""
 
-    _print_status(_service(ctx).status(run_dir), as_json)
+    _print_status(run_status(run_dir), as_json)
 
 
 @main.command()
@@ -224,9 +224,14 @@ def status(ctx: click.Context, run_dir: Path, as_json: bool) -> None:
 def cancel(ctx: click.Context, run_dir: Path, as_json: bool) -> None:
     """Cancel an in-flight run."""
 
-    service = _service(ctx)
-    service.cancel(run_dir)
-    _print_status(service.status(run_dir), as_json)
+    del ctx
+    store = ArtifactStore(run_dir)
+    manifest = store.manifest()
+    status = str(manifest.get("status", ""))
+    if status not in {"running", "awaiting_input", "ready"}:
+        raise ChemExError(f"Run cannot be cancelled from terminal status: {status}")
+    store.finish("cancelled")
+    _print_status(run_status(run_dir), as_json)
 
 
 @main.command("review")
@@ -461,16 +466,14 @@ def models_check(ctx: click.Context, name: str) -> None:
         raise click.exceptions.Exit(2)
 
 
-def _service(ctx: click.Context) -> ChemExService:
-    """Build a service instance from CLI context."""
+def _config(ctx: click.Context) -> AppConfig:
+    """Load the effective configuration from CLI context."""
 
     obj = _ctx_obj(ctx)
-    return ChemExService(
-        load_config(
-            obj.get("config_path"),
-            profile=obj.get("profile"),
-            models_path=obj.get("models_path"),
-        )
+    return load_config(
+        obj.get("config_path"),
+        profile=obj.get("profile"),
+        models_path=obj.get("models_path"),
     )
 
 
