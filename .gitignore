@@ -5,8 +5,10 @@ legacy/
 
 # Outputs (regenerable)
 outputs/
+/output/
 experiments/
 /submissions/
+.codex-build/
 
 # Local plans and scratch (root-level only)
 .omo/
