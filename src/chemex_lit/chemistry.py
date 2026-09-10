@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass
-from typing import Iterable, Literal
+from typing import Any, Iterable, Literal
 
 from chemex_lit.models import ReactionCandidate, StructureCandidate, ValidationIssue
 
@@ -135,4 +135,405 @@ def render_smiles(smiles: str, size: tuple[int, int] = (360, 240)) -> bytes | No
         image.save(buffer, format="PNG")
         return buffer.getvalue()
     except (ImportError, ValueError, OSError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Stereo analysis and structure comparison
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StereoCenter:
+    """One tetrahedral stereocenter detected by RDKit."""
+
+    atom_index: int
+    assignment: str | None
+    specified: bool
+
+
+@dataclass(frozen=True)
+class StereoBond:
+    """One double bond with potential E/Z stereochemistry."""
+
+    bond_index: int
+    begin_atom: int
+    end_atom: int
+    assignment: str | None
+    specified: bool
+
+
+@dataclass(frozen=True)
+class StereoAnalysis:
+    """Result of stereochemical analysis of one SMILES string."""
+
+    canonical_smiles: str
+    centers: list[StereoCenter]
+    bonds: list[StereoBond]
+    rdkit_available: bool
+
+
+@dataclass(frozen=True)
+class StructureComparison:
+    """Layered comparison result between two SMILES structures."""
+
+    level: str
+    detail: str
+    comparable: bool
+
+
+def analyze_stereo(smiles: str) -> StereoAnalysis | None:
+    """Analyze stereochemistry of a SMILES string.
+
+    Returns ``StereoAnalysis`` with detected stereocenters and stereo bonds,
+    or ``None`` if the SMILES cannot be parsed.  Atom indices are RDKit atom
+    indices of the parsed molecule and are valid only with the returned
+    ``canonical_smiles``.
+
+    Args:
+        smiles: A SMILES string to analyze.
+
+    Returns:
+        StereoAnalysis or None if the SMILES is unparseable.
+    """
+    try:
+        from rdkit import Chem
+    except (ImportError, ValueError, TypeError):
+        return StereoAnalysis(
+            canonical_smiles=smiles,
+            centers=[],
+            bonds=[],
+            rdkit_available=False,
+        )
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+
+    canonical = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+
+    centers: list[StereoCenter] = []
+    for atom_idx, assignment in Chem.FindMolChiralCenters(
+        mol, includeUnassigned=True
+    ):
+        specified = assignment != "?"
+        centers.append(StereoCenter(
+            atom_index=atom_idx,
+            assignment=assignment if specified else None,
+            specified=specified,
+        ))
+
+    bonds: list[StereoBond] = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.rdchem.BondType.DOUBLE:
+            continue
+        stereo = bond.GetStereo()
+        is_specified = stereo in (
+            Chem.rdchem.BondStereo.STEREOE,
+            Chem.rdchem.BondStereo.STEREOZ,
+        )
+        assignment = None
+        if is_specified:
+            assignment = (
+                "E" if stereo == Chem.rdchem.BondStereo.STEREOE else "Z"
+            )
+        bonds.append(StereoBond(
+            bond_index=bond.GetIdx(),
+            begin_atom=bond.GetBeginAtomIdx(),
+            end_atom=bond.GetEndAtomIdx(),
+            assignment=assignment,
+            specified=is_specified,
+        ))
+
+    return StereoAnalysis(
+        canonical_smiles=canonical,
+        centers=centers,
+        bonds=bonds,
+        rdkit_available=True,
+    )
+
+
+def compare_structures(
+    smiles_a: str | None,
+    smiles_b: str | None,
+    *,
+    normalization: Literal["none", "strip_charge", "strip_isotopes"] = "none",
+) -> StructureComparison:
+    """Layered, deterministic structure comparison.
+
+    Compares two SMILES at connectivity, stereo, and charge/salt/isotope
+    levels.  Uses substructure matching for atom correspondence — never
+    infers stereo from ``@``/``@@`` string differences.
+
+    Args:
+        smiles_a: First SMILES string, or None.
+        smiles_b: Second SMILES string, or None.
+        normalization: Controls whether charge or isotope differences are
+            collapsed.  ``strip_charge`` makes molecules differing only in
+            formal charge report as identical; ``strip_isotopes`` does the
+            same for isotope labels.
+
+    Returns:
+        StructureComparison with level, detail, and comparable flag.
+    """
+    a_empty = not smiles_a or not smiles_a.strip()
+    b_empty = not smiles_b or not smiles_b.strip()
+
+    if a_empty and b_empty:
+        return StructureComparison(
+            level="uncomparable",
+            detail="Both inputs are None or empty",
+            comparable=False,
+        )
+    if a_empty or b_empty:
+        return StructureComparison(
+            level="missing_one_side",
+            detail=f"Only {'B' if a_empty else 'A'} side provided",
+            comparable=False,
+        )
+
+    try:
+        from rdkit import Chem
+    except (ImportError, ValueError, TypeError):
+        return StructureComparison(
+            level="uncomparable",
+            detail="RDKit not available",
+            comparable=False,
+        )
+
+    # Both inputs are non-None non-empty str after the guards above.
+    assert smiles_a is not None and smiles_b is not None  # noqa: S101
+    mol_a = Chem.MolFromSmiles(smiles_a)
+    mol_b = Chem.MolFromSmiles(smiles_b)
+
+    if mol_a is None or mol_b is None:
+        parts: list[str] = []
+        if mol_a is None:
+            parts.append(f"Cannot parse A: {smiles_a}")
+        if mol_b is None:
+            parts.append(f"Cannot parse B: {smiles_b}")
+        return StructureComparison(
+            level="uncomparable",
+            detail="; ".join(parts),
+            comparable=False,
+        )
+
+    # Layer 1: isomeric canonical SMILES
+    iso_a = Chem.MolToSmiles(mol_a, canonical=True, isomericSmiles=True)
+    iso_b = Chem.MolToSmiles(mol_b, canonical=True, isomericSmiles=True)
+    if iso_a == iso_b:
+        return StructureComparison(
+            level="identical",
+            detail="Canonical isomeric SMILES are equal",
+            comparable=True,
+        )
+
+    # Layer 2: non-isomeric canonical SMILES (connectivity only)
+    niso_a = Chem.MolToSmiles(mol_a, canonical=True, isomericSmiles=False)
+    niso_b = Chem.MolToSmiles(mol_b, canonical=True, isomericSmiles=False)
+    if niso_a == niso_b:
+        level = _classify_stereo_diff(mol_a, mol_b)
+        return StructureComparison(
+            level=level,
+            detail=f"Same connectivity ({niso_a}), stereo differs",
+            comparable=True,
+        )
+
+    # Layer 3: normalization-aware identity check
+    if normalization == "strip_charge":
+        norm_a = _strip_charges_canonical(mol_a)
+        norm_b = _strip_charges_canonical(mol_b)
+        if norm_a is not None and norm_b is not None and norm_a == norm_b:
+            return StructureComparison(
+                level="identical",
+                detail="Identical after stripping formal charges",
+                comparable=True,
+            )
+    elif normalization == "strip_isotopes":
+        norm_a = _strip_isotopes_canonical(mol_a)
+        norm_b = _strip_isotopes_canonical(mol_b)
+        if norm_a is not None and norm_b is not None and norm_a == norm_b:
+            return StructureComparison(
+                level="identical",
+                detail="Identical after stripping isotope labels",
+                comparable=True,
+            )
+
+    # Layer 4: charge/salt/isotope skeleton comparison
+    skel_a = _neutral_skeleton_smiles(mol_a)
+    skel_b = _neutral_skeleton_smiles(mol_b)
+    if skel_a is not None and skel_b is not None and skel_a == skel_b:
+        return StructureComparison(
+            level="charge_salt_isotope_differs",
+            detail=f"Same skeleton ({skel_a}), charge/salt/isotope differs",
+            comparable=True,
+        )
+
+    # Layer 5: different connectivity
+    return StructureComparison(
+        level="connectivity_differs",
+        detail=f"Different connectivity: A={niso_a}, B={niso_b}",
+        comparable=True,
+    )
+
+
+def render_smiles_svg(
+    smiles: str,
+    size: tuple[int, int] = (360, 240),
+    *,
+    highlight_atoms: list[int] | None = None,
+) -> str | None:
+    """Render one SMILES to SVG string, or ``None`` on failure.
+
+    Args:
+        smiles: A SMILES string to render.
+        size: Width and height in pixels.
+        highlight_atoms: Optional atom indices to highlight.
+
+    Returns:
+        SVG markup string, or None if RDKit cannot parse the SMILES.
+    """
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import Draw  # pyright: ignore[reportAttributeAccessIssue]
+        from rdkit.Chem import rdDepictor
+
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+        rdDepictor.Compute2DCoords(mol)
+        drawer = Draw.MolDraw2DSVG(size[0], size[1])
+        draw_kwargs: dict[str, Any] = {}
+        if highlight_atoms is not None:
+            draw_kwargs["highlightAtoms"] = highlight_atoms
+        drawer.DrawMolecule(mol, **draw_kwargs)
+        drawer.FinishDrawing()
+        return drawer.GetDrawingText()
+    except (ImportError, ValueError, OSError, TypeError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Private helpers for compare_structures
+# ---------------------------------------------------------------------------
+
+
+def _classify_stereo_diff(mol_a: Any, mol_b: Any) -> str:
+    """Classify stereo difference between molecules with same connectivity.
+
+    Uses ``GetSubstructMatch`` for atom correspondence.  Never infers
+    stereo from ``@``/``@@`` string differences.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import rdchem
+
+    match = mol_b.GetSubstructMatch(mol_a)
+    if len(match) != mol_a.GetNumAtoms():
+        return "stereo_only"
+
+    centers_a = dict(Chem.FindMolChiralCenters(mol_a, includeUnassigned=True))
+    centers_b = dict(Chem.FindMolChiralCenters(mol_b, includeUnassigned=True))
+
+    has_spec_diff = False
+    has_value_diff = False
+
+    for idx_a, assign_a in centers_a.items():
+        idx_b = match[idx_a]
+        assign_b = centers_b.get(idx_b, "?")
+        if assign_a == "?" and assign_b != "?":
+            has_spec_diff = True
+        elif assign_a != "?" and assign_b == "?":
+            has_spec_diff = True
+        elif assign_a != assign_b and assign_a != "?" and assign_b != "?":
+            has_value_diff = True
+
+    for bond_a in mol_a.GetBonds():
+        if bond_a.GetBondType() != rdchem.BondType.DOUBLE:
+            continue
+        begin_b = match[bond_a.GetBeginAtomIdx()]
+        end_b = match[bond_a.GetEndAtomIdx()]
+        bond_b = mol_b.GetBondBetweenAtoms(begin_b, end_b)
+        if bond_b is None or bond_b.GetBondType() != rdchem.BondType.DOUBLE:
+            continue
+        stereo_a = bond_a.GetStereo()
+        stereo_b = bond_b.GetStereo()
+        a_spec = stereo_a in (
+            rdchem.BondStereo.STEREOE, rdchem.BondStereo.STEREOZ
+        )
+        b_spec = stereo_b in (
+            rdchem.BondStereo.STEREOE, rdchem.BondStereo.STEREOZ
+        )
+        if a_spec and not b_spec:
+            has_spec_diff = True
+        elif not a_spec and b_spec:
+            has_spec_diff = True
+        elif a_spec and b_spec and stereo_a != stereo_b:
+            has_value_diff = True
+
+    if has_value_diff:
+        return "stereo_only"
+    if has_spec_diff:
+        return "stereo_specificity_differs"
+    return "stereo_only"
+
+
+def _clean_bracket(content: str) -> str:
+    """Strip isotope digits and charge from one SMILES bracket body."""
+    c = re.sub(r"^\d+", "", content)
+    c = re.sub(r"[+-]\d*$", "", c)
+    return c
+
+
+def _strip_annotations(smiles: str, *, charges: bool, isotopes: bool) -> str:
+    """Strip charge and/or isotope annotations from a canonical SMILES string.
+
+    Operates on the SMILES string level to avoid RDKit bond-perception
+    changes that occur when formal charges are modified on the molecule.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        body = match.group(1)
+        if isotopes:
+            body = re.sub(r"^\d+", "", body)
+        if charges:
+            body = re.sub(r"[+-]\d*$", "", body)
+        return body
+
+    return re.sub(r"\[([^\]]+)\]", _replace, smiles)
+
+
+def _neutral_skeleton_smiles(mol: Any) -> str | None:
+    """Canonical non-iso SMILES of largest fragment, charges/isotopes stripped."""
+    from rdkit import Chem
+
+    try:
+        smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=False)
+        stripped = _strip_annotations(smiles, charges=True, isotopes=True)
+        frags = stripped.split(".")
+        if not frags:
+            return None
+        return max(frags, key=len)
+    except Exception:
+        return None
+
+
+def _strip_charges_canonical(mol: Any) -> str | None:
+    """Canonical non-isomeric SMILES with formal charges stripped."""
+    from rdkit import Chem
+
+    try:
+        smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=False)
+        return _strip_annotations(smiles, charges=True, isotopes=False)
+    except Exception:
+        return None
+
+
+def _strip_isotopes_canonical(mol: Any) -> str | None:
+    """Canonical non-isomeric SMILES with isotope labels stripped."""
+    from rdkit import Chem
+
+    try:
+        smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=False)
+        return _strip_annotations(smiles, charges=False, isotopes=True)
+    except Exception:
         return None
