@@ -15,7 +15,7 @@ from pydantic import BaseModel, ValidationError
 from chemex_lit import __version__
 from chemex_lit.adjudicator import Adjudicator
 from chemex_lit.assembly import Assembler
-from chemex_lit.chemistry import ValidationOutcome, Validator
+from chemex_lit.chemistry import ValidationOutcome, Validator, normalize_label
 from chemex_lit.config import AppConfig, ModelSpec, config_fingerprint
 from chemex_lit.errors import ArtifactError, ChemExError, utc_now
 from chemex_lit.extraction import (
@@ -38,13 +38,18 @@ from chemex_lit.models import (
     AdjudicationDecision,
     CandidateSubmission,
     Channel,
+    CompoundRef,
     DocumentBundle,
+    EvidenceRef,
     ExtractionTask,
     ProducerPlan,
     ProducerSpec,
     ProvenanceEntry,
     ReactionCandidate,
     ReactionRecord,
+    ReviewConditionItem,
+    ReviewContext,
+    ReviewParticipant,
     RunMode,
     RunRequest,
     RunStatus,
@@ -57,7 +62,7 @@ from chemex_lit.models import (
     normalize_mode,
 )
 from chemex_lit.review import generate_review
-from chemex_lit.store import ArtifactStore, sha256_file, sha256_text
+from chemex_lit.store import ArtifactStore, record_content_hash, sha256_file, sha256_text
 
 logger = logging.getLogger(__name__)
 
@@ -992,7 +997,11 @@ class Pipeline:
             "review.jsonl",
             [item for item in records if item.review_status == "needs_review"],
         )
-        generate_review(records, store)
+        contexts = _build_review_contexts(store, records)
+        store.write_review_contexts(contexts)
+        decisions = store.read_review_decisions()
+        evidence = _read_evidence_defensive(store)
+        generate_review(records, store, contexts=contexts, decisions=decisions, evidence=evidence)
         status = self._status(records)
         store.mark_stage(
             "finalization",
@@ -1574,5 +1583,168 @@ def _markdown_tables(markdown: str) -> list[str]:
             tables.append("\n".join(current))
         current = []
     return tables
+
+
+def _build_review_contexts(
+    store: ArtifactStore,
+    records: list[ReactionRecord],
+) -> list[ReviewContext]:
+    """Build one ReviewContext per record for the review workbench.
+
+    Participant IDs follow the scheme ``{reaction_id}:{role}:{ordinal}``
+    where *ordinal* is a 1-based counter among participants sharing the same
+    role within the reaction at context-build time.
+
+    Structure candidate linkage uses ``candidates/structures.jsonl`` when
+    present.  A participant is linked only when exactly one structure
+    candidate matches its normalised label; ambiguous matches leave
+    ``candidate_ids`` empty.  Legacy runs without a structures sidecar
+    degrade gracefully (empty candidate IDs for all participants).
+    """
+
+    structures_by_label: dict[str, list[str]] = {}
+    structures_path = store.root / "candidates" / "structures.jsonl"
+    if structures_path.is_file():
+        for sc in store.read_models("candidates/structures.jsonl", StructureCandidate):
+            label = normalize_label(sc.compound_label)
+            if label:
+                structures_by_label.setdefault(label, []).append(sc.candidate_id)
+
+    return [_build_single_review_context(record, structures_by_label) for record in records]
+
+
+def _build_single_review_context(
+    record: ReactionRecord,
+    structures_by_label: dict[str, list[str]],
+) -> ReviewContext:
+    reaction_id = record.reaction_id
+    participants: list[ReviewParticipant] = []
+
+    compound_groups: list[tuple[Literal["reactant", "product"], list[CompoundRef]]] = [
+        ("reactant", record.reactants),
+        ("product", record.products),
+    ]
+    for role, compounds in compound_groups:
+        for ordinal, compound in enumerate(compounds, 1):
+            label = normalize_label(compound.label)
+            linked = structures_by_label.get(label, [])
+            candidate_ids = linked if len(linked) == 1 else []
+            smiles = compound.smiles
+            participants.append(
+                ReviewParticipant(
+                    participant_id=f"{reaction_id}:{role}:{ordinal}",
+                    role=role,
+                    label=compound.label,
+                    name=compound.name,
+                    smiles=smiles,
+                    structure_state="resolved" if smiles else "unresolved",
+                    candidate_ids=candidate_ids,
+                )
+            )
+
+    name_groups: list[tuple[Literal["reagent", "solvent"], list[str]]] = [
+        ("reagent", record.reagents),
+        ("solvent", record.solvents),
+    ]
+    for role, names in name_groups:
+        for ordinal, name in enumerate(names, 1):
+            participants.append(
+                ReviewParticipant(
+                    participant_id=f"{reaction_id}:{role}:{ordinal}",
+                    role=role,
+                    name=name,
+                    structure_state="not_attempted",
+                )
+            )
+
+    conditions = _build_review_conditions(record)
+
+    all_field_evidence_empty = all(not c.field_evidence_ids for c in conditions)
+    context_schema_note = (
+        "field-level evidence unavailable; reaction-level reference only"
+        if all_field_evidence_empty
+        else None
+    )
+
+    return ReviewContext(
+        reaction_id=reaction_id,
+        record_hash=record_content_hash(record),
+        participants=participants,
+        conditions=conditions,
+        reaction_evidence_ids=record.evidence_ids,
+        context_schema_note=context_schema_note,
+    )
+
+
+def _build_review_conditions(record: ReactionRecord) -> list[ReviewConditionItem]:
+    reaction_id = record.reaction_id
+    conditions: list[ReviewConditionItem] = []
+    ordinal = 0
+
+    if record.temperature_c is not None:
+        ordinal += 1
+        conditions.append(
+            ReviewConditionItem(
+                condition_id=f"{reaction_id}:temperature:{ordinal}",
+                kind="temperature",
+                numeric_value=record.temperature_c,
+                unit="\u00b0C",
+                extraction_state="extracted",
+            )
+        )
+
+    if record.time is not None:
+        ordinal += 1
+        conditions.append(
+            ReviewConditionItem(
+                condition_id=f"{reaction_id}:time:{ordinal}",
+                kind="time",
+                value=record.time,
+                extraction_state="extracted",
+            )
+        )
+
+    if record.yield_pct is not None:
+        ordinal += 1
+        conditions.append(
+            ReviewConditionItem(
+                condition_id=f"{reaction_id}:yield:{ordinal}",
+                kind="yield",
+                numeric_value=record.yield_pct,
+                unit="%",
+                extraction_state="extracted",
+            )
+        )
+
+    for idx, name in enumerate(record.reagents, 1):
+        conditions.append(
+            ReviewConditionItem(
+                condition_id=f"{reaction_id}:reagent:{idx}",
+                kind="reagent",
+                value=name,
+                extraction_state="extracted",
+            )
+        )
+
+    for idx, name in enumerate(record.solvents, 1):
+        conditions.append(
+            ReviewConditionItem(
+                condition_id=f"{reaction_id}:solvent:{idx}",
+                kind="solvent",
+                value=name,
+                extraction_state="extracted",
+            )
+        )
+
+    return conditions
+
+
+def _read_evidence_defensive(store: ArtifactStore) -> list[EvidenceRef]:
+    """Read evidence.jsonl, returning an empty list when the file is absent."""
+
+    evidence_path = store.root / "evidence.jsonl"
+    if not evidence_path.is_file():
+        return []
+    return store.read_models("evidence.jsonl", EvidenceRef)
 
 

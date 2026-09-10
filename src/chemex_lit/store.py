@@ -12,7 +12,14 @@ from typing import Any, Iterable, TypeVar
 from pydantic import BaseModel
 
 from chemex_lit.errors import ArtifactError
-from chemex_lit.models import ProvenanceEntry
+from chemex_lit.models import (
+    GoldComparison,
+    ProvenanceEntry,
+    ReactionRecord,
+    ReviewContext,
+    ReviewDecision,
+    ReviewSubmission,
+)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -48,6 +55,18 @@ def sha256_file(path: Path) -> str:
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def record_content_hash(record: ReactionRecord) -> str:
+    """Return the SHA-256 digest of a serialised ReactionRecord."""
+
+    return sha256_text(record.model_dump_json())
+
+
+REVIEW_CONTEXT_PATH = "review_context.jsonl"
+REVIEW_DECISIONS_PATH = "review_decisions.jsonl"
+GOLD_COMPARISON_PATH = "gold_comparison.jsonl"
+REVIEW_SUBMISSIONS_DIR = "review_submissions"
 
 
 class ArtifactStore:
@@ -251,6 +270,68 @@ class ArtifactStore:
         if not path.is_file():
             return []
         return self.read_models("candidates/provenance.jsonl", ProvenanceEntry)
+
+    def write_review_contexts(self, contexts: Iterable[ReviewContext]) -> Path:
+        """Write review context sidecar entries."""
+
+        return self.write_jsonl(REVIEW_CONTEXT_PATH, contexts)
+
+    def read_review_contexts(self) -> list[ReviewContext]:
+        """Read review context sidecar entries if present."""
+
+        path = self._path(REVIEW_CONTEXT_PATH)
+        if not path.is_file():
+            return []
+        return self.read_models(REVIEW_CONTEXT_PATH, ReviewContext)
+
+    def append_review_decisions(self, decisions: Iterable[ReviewDecision]) -> Path:
+        """Append review decision entries to the decisions sidecar."""
+
+        return self.append_jsonl(REVIEW_DECISIONS_PATH, decisions)
+
+    def read_review_decisions(self) -> list[ReviewDecision]:
+        """Read review decision entries, returning an empty list when absent."""
+
+        path = self._path(REVIEW_DECISIONS_PATH)
+        if not path.is_file():
+            return []
+        return self.read_models(REVIEW_DECISIONS_PATH, ReviewDecision)
+
+    def write_gold_comparisons(self, comparisons: Iterable[GoldComparison]) -> Path:
+        """Write gold comparison sidecar entries."""
+
+        return self.write_jsonl(GOLD_COMPARISON_PATH, comparisons)
+
+    def read_gold_comparisons(self) -> list[GoldComparison]:
+        """Read gold comparison sidecar entries, returning an empty list when absent."""
+
+        path = self._path(GOLD_COMPARISON_PATH)
+        if not path.is_file():
+            return []
+        return self.read_models(GOLD_COMPARISON_PATH, GoldComparison)
+
+    def persist_review_submission(self, submission: ReviewSubmission) -> Path:
+        """Persist a review submission package.
+
+        Writes ``review_submissions/{submission_id}.json``.  If a file with
+        the same name already exists and its content matches *submission* the
+        call is a no-op.  If the existing content differs an
+        :class:`ArtifactError` is raised so callers can handle deduplication.
+        """
+
+        relative = f"{REVIEW_SUBMISSIONS_DIR}/{submission.submission_id}.json"
+        path = self._path(relative)
+        new_content = submission.model_dump_json(indent=2)
+        if path.is_file():
+            existing = path.read_text(encoding="utf-8").rstrip("\n")
+            if existing == new_content:
+                return path
+            raise ArtifactError(
+                f"Review submission {submission.submission_id!r} already exists "
+                "with different content"
+            )
+        self._atomic_write(path, new_content + "\n")
+        return path
 
     def read_models(self, relative: str, model: type[T]) -> list[T]:
         path = self._path(relative)
