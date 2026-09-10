@@ -126,12 +126,22 @@ chemex-lit resume outputs/paper-<hash>
 chemex-lit status outputs/paper-<hash>
 chemex-lit cancel outputs/paper-<hash>
 chemex-lit review outputs/paper-<hash>
-chemex-lit review-apply outputs/paper-<hash> corrections.json --confirmed-by "Reviewer One"
+chemex-lit review outputs/paper-<hash> --gold benchmark.jsonl --json
+chemex-lit review-apply outputs/paper-<hash> submission.json --confirmed-by "Reviewer One"
 chemex-lit evaluate outputs/paper-<hash> --gold benchmark.jsonl
 ```
 
-`review-apply` requires `--confirmed-by` and revalidates chemistry before writing
-`records.corrected.jsonl`.
+`review-apply` requires `--confirmed-by` and auto-detects the package
+format (ReviewSubmission or legacy corrections array). It revalidates
+chemistry before writing `records.corrected.jsonl`. The interactive
+review workbench (`review.html`) is a three-pane dashboard for
+inspecting records, evidence, and gold comparisons side by side.
+
+`evaluate` outputs v2 metrics (`metrics_version: "2.0"`) including
+`structure_comparable_count`, `structure_agreement`,
+`stereo_comparable_count`, `stereo_agreement`, and per-reason
+uncomparable counts. All divisions are zero-safe (`null` when
+denominator is 0).
 
 Modes: `auto` is unattended and suitable for CI or reproducible batch runs.
 `semi` pauses at `awaiting_input` so structure tasks can be submitted by a

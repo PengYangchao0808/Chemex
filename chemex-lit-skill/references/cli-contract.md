@@ -23,12 +23,13 @@ chemex-lit run paper.pdf --mode auto --json
 chemex-lit status <run_dir> --json
 chemex-lit submit <run_dir> submission.jsonl --json
 chemex-lit resume <run_dir> --json
-chemex-lit review <run_dir>
+chemex-lit review <run_dir> [--gold benchmark.jsonl] --json
 ```
 
 Auxiliary commands (human-facing, not part of the agent loop):
-`cancel <run_dir> [--json]`, `review-apply <run_dir> corrections.json
---confirmed-by "<human name>"`, `evaluate <run_dir> --gold benchmark.jsonl`,
+`cancel <run_dir> [--json]`, `review-apply <run_dir> <package>
+--confirmed-by "<human name>"` (auto-detects ReviewSubmission or legacy
+corrections array), `evaluate <run_dir> --gold benchmark.jsonl`,
 `models list|show|check`, and the credential commands below.
 
 ## Credential store
@@ -120,6 +121,31 @@ artifact paths with the local path library (`Path(run_dir) / "tasks/extraction.j
 
 `status` becomes `ready` when no tasks remain `awaiting`.
 
+## review output
+
+```json
+{
+  "run_dir": "/work/extraction/outputs/paper-a1b2c3d4",
+  "review_html": "/work/extraction/outputs/paper-a1b2c3d4/review.html",
+  "records_count": 12,
+  "human_status_counts": {"unreviewed": 10, "confirmed": 2},
+  "gold": null
+}
+```
+
+When `--gold` is provided, `gold` contains `file_name`, `file_hash`,
+and `entry_count`. When `--gold` is absent but `gold_comparison.jsonl`
+already exists, it is reloaded for reproducibility. The
+`human_status_counts` values come from the sidecar aggregation
+(`unreviewed | in_review | confirmed | pending | rejected`).
+
+`review-apply` auto-detects the package format: a JSON object with
+`submission_id` and `operations` applies via the submission workflow;
+a JSON array of `{reaction_id, path, value}` objects uses the legacy
+corrections path. Both write `records.corrected.jsonl` and
+`audit.jsonl`, then regenerate `review.html`. The original
+`records.jsonl` is preserved.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -159,7 +185,12 @@ or protocol files.
 │   └── provenance.jsonl     Provenance sidecar for every candidate
 ├── validation/              Validation issues and validated candidates
 ├── records.jsonl            Final records (schema_version: "1.0")
-├── review.html              Human-readable review page
+├── review.html              Human-readable review workbench (three-pane)
+├── review_context.jsonl     Per-reaction review context (participants, conditions)
+├── review_decisions.jsonl   Human review decisions (confirm, reject, pending)
+├── gold_comparison.jsonl    Gold-standard comparison results (when --gold given)
+├── review_submissions/      Persisted ReviewSubmission packages (dedup)
+├── review_assets/           Rendered structure images (PNG) for the workbench
 ├── records.corrected.jsonl  Corrected records (after review-apply)
 └── provenance/submissions/  Accepted submission files
 ```

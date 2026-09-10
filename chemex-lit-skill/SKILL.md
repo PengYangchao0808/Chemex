@@ -238,7 +238,20 @@ fulfill-submit-resume cycle until the run reaches a terminal status
 ### 7. Review
 
 ```
-chemex-lit review /work/extraction/outputs/paper-a1b2c3d4
+chemex-lit review /work/extraction/outputs/paper-a1b2c3d4 --json
+```
+
+The review workbench is a three-pane HTML dashboard (`review.html`)
+showing records, evidence, and gold comparisons side by side. Use
+`--gold benchmark.jsonl` to overlay gold-standard comparisons. The
+`--json` flag emits a machine-readable envelope with `records_count`,
+`human_status_counts`, and gold provenance.
+
+For offline review, export a `ReviewSubmission` package from the
+workbench, have a human reviewer edit it, and apply with:
+
+```
+chemex-lit review-apply /work/extraction/outputs/paper-a1b2c3d4 submission.json --confirmed-by "Jane Smith"
 ```
 
 Open the review output to see which records need attention (marked
@@ -258,7 +271,8 @@ chemistry and the CLI owns persistence.
 - **Never use `--force`.** It creates a `supersedes` audit record and
   invalidates all downstream stages. A skill may not decide this.
 - **Never supply `--confirmed-by` yourself.** That field is the name of
-  the human who confirmed a correction. The host agent must ask a human.
+  the human who confirmed a correction or review submission. The host
+  agent must never supply this value; it must be a real human name.
 - **Evidence IDs must come from the task.** Use the `evidence_ids` the
   Core provides. Do not invent or reuse evidence from other runs.
 - **Fill every task or report which remain.** After submission, check

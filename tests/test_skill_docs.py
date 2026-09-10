@@ -31,7 +31,7 @@ README_MD = REPO_ROOT / "README.md"
 
 DEPRECATED_ALIASES = ("human-ocsr-agent", "auto-agent")
 NESTED_CLIENT = re.compile(r'"client"\s*:\s*\{')
-COMMANDS_WITH_JSON = ("check", "run", "status", "submit", "resume")
+COMMANDS_WITH_JSON = ("check", "run", "status", "submit", "resume", "review")
 REVIEW_COMMAND = "review"
 RUN_SUMMARY_KEYS = set(RunSummary.model_fields)
 CHECK_ENVELOPE_KEYS = {"ok", "mode", "profile", "checks"}
