@@ -1,0 +1,2711 @@
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChemEx-Lit Review Workbench</title>
+<style>
+/* ===== Design tokens ===== */
+:root {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Noto Sans Mono CJK SC", monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-md: 14px; --fs-lg: 16px; --fs-xl: 18px;
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px;
+  --radius-sm: 3px; --radius-md: 5px; --radius-lg: 8px;
+  --c-bg: #f4f5f7; --c-surface: #ffffff; --c-surface-alt: #f8f9fb;
+  --c-border: #d1d5db; --c-border-light: #e5e7eb;
+  --c-text: #1f2937; --c-text-secondary: #6b7280; --c-text-muted: #9ca3af;
+  --c-accent: #2563eb; --c-accent-hover: #1d4ed8; --c-accent-light: #eff6ff;
+  --c-unreviewed: #7c3aed; --c-unreviewed-bg: #f3f0ff;
+  --c-in-review: #d97706; --c-in-review-bg: #fef9ee;
+  --c-confirmed: #059669; --c-confirmed-bg: #ecfdf5;
+  --c-pending: #b45309; --c-pending-bg: #fef3c7;
+  --c-rejected: #dc2626; --c-rejected-bg: #fef2f2;
+  --c-clean: #059669; --c-clean-bg: #ecfdf5;
+  --c-needs-review: #dc2626; --c-needs-review-bg: #fef2f2;
+  --c-error: #dc2626; --c-warning: #d97706; --c-info: #2563eb;
+  --c-gold-bg: #fefce8; --c-gold-border: #facc15;
+  --c-stale: #ea580c; --c-stale-bg: #fff7ed;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font: var(--fs-base)/1.5 var(--font-sans); color: var(--c-text); background: var(--c-bg); overflow: hidden; height: 100vh; }
+button { font: inherit; cursor: pointer; border: none; background: none; }
+input, textarea { font: inherit; }
+:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+code, .mono { font-family: var(--font-mono); }
+
+/* ===== App shell — two-column ===== */
+.app { display: grid; grid-template-rows: 44px 1fr 40px; grid-template-columns: 240px 1fr; height: 100vh; overflow: hidden; }
+
+/* ===== Header ===== */
+.header { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--sp-3); padding: 0 var(--sp-4); background: #1e293b; color: #e2e8f0; font-size: var(--fs-sm); border-bottom: 1px solid #334155; }
+.header .title-area { flex: 1; display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.header .title-area h1 { font-size: var(--fs-md); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #f1f5f9; }
+.header .meta-chips { display: flex; gap: var(--sp-1); flex-wrap: wrap; align-items: center; }
+.header .meta-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 3px; font-size: var(--fs-xs); background: rgba(255,255,255,0.08); color: #cbd5e1; white-space: nowrap; }
+.header .meta-chip .chip-label { opacity: 0.7; }
+.header .actions-group { display: flex; gap: var(--sp-1); align-items: center; }
+.header .btn-header { padding: 3px 10px; font-size: var(--fs-xs); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.15); color: #e2e8f0; background: rgba(255,255,255,0.06); transition: background 0.15s; }
+.header .btn-header:hover { background: rgba(255,255,255,0.14); }
+.header .btn-primary { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
+.header .btn-primary:hover { background: var(--c-accent-hover); }
+
+/* ===== Queue pane ===== */
+.queue-pane { background: var(--c-surface); border-right: 1px solid var(--c-border); display: flex; flex-direction: column; overflow: hidden; grid-row: 2; }
+.queue-toolbar { padding: var(--sp-2); border-bottom: 1px solid var(--c-border-light); display: flex; flex-direction: column; gap: var(--sp-2); }
+.queue-search { width: 100%; padding: 5px 8px; border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--fs-base); background: var(--c-surface-alt); }
+.queue-search::placeholder { color: var(--c-text-muted); }
+.filter-chips { display: flex; gap: 3px; flex-wrap: wrap; }
+.filter-chip { padding: 2px 7px; font-size: var(--fs-xs); border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; white-space: nowrap; }
+.filter-chip:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.filter-chip.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+.queue-count { font-size: var(--fs-xs); color: var(--c-text-muted); padding: 0 var(--sp-2); border-bottom: 1px solid var(--c-border-light); line-height: 22px; }
+.queue-list { flex: 1; overflow-y: auto; }
+.queue-item { padding: 6px var(--sp-3); border-bottom: 1px solid var(--c-border-light); cursor: pointer; display: flex; gap: var(--sp-2); align-items: center; transition: background 0.1s; }
+.queue-item:hover { background: var(--c-accent-light); }
+.queue-item.selected { background: #dbeafe; border-left: 3px solid var(--c-accent); }
+.qi-thumb { width: 64px; height: 40px; object-fit: contain; border-radius: var(--radius-sm); border: 1px solid var(--c-border-light); flex-shrink: 0; background: #fff; }
+.qi-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.queue-item .qi-top { display: flex; align-items: center; gap: var(--sp-1); }
+.queue-item .qi-rid { font-weight: 600; font-size: var(--fs-base); font-family: var(--font-mono); color: var(--c-text); }
+.queue-item .qi-loc { font-size: var(--fs-xs); color: var(--c-text-muted); margin-left: auto; }
+.queue-item .qi-badges { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
+
+/* ===== Badges ===== */
+.badge { display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-xs); padding: 1px 6px; border-radius: 3px; font-weight: 500; white-space: nowrap; line-height: 1.4; }
+.badge-unreviewed { background: var(--c-unreviewed-bg); color: var(--c-unreviewed); }
+.badge-in_review { background: var(--c-in-review-bg); color: var(--c-in-review); }
+.badge-confirmed { background: var(--c-confirmed-bg); color: var(--c-confirmed); }
+.badge-pending { background: var(--c-pending-bg); color: var(--c-pending); }
+.badge-rejected { background: var(--c-rejected-bg); color: var(--c-rejected); }
+.badge-clean { background: var(--c-clean-bg); color: var(--c-clean); }
+.badge-needs_review { background: var(--c-needs-review-bg); color: var(--c-needs-review); }
+.badge-gold { background: var(--c-gold-bg); color: #92400e; border: 1px solid var(--c-gold-border); }
+.badge-stale { background: var(--c-stale-bg); color: var(--c-stale); }
+.badge-icon { font-size: 10px; line-height: 1; }
+
+/* ===== Detail pane ===== */
+.detail-pane { grid-row: 2; overflow-y: auto; padding: var(--sp-4); background: var(--c-surface); scroll-behavior: smooth; }
+.rxn-header { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); padding-bottom: var(--sp-3); border-bottom: 2px solid var(--c-border-light); }
+.rxn-header h2 { font-size: var(--fs-xl); font-weight: 700; font-family: var(--font-mono); }
+.rxn-header .rxn-badges { display: flex; gap: var(--sp-1); align-items: center; }
+
+/* ===== Reaction hero ===== */
+.rxn-hero { background: var(--c-surface-alt); border: 1px solid var(--c-border-light); border-radius: var(--radius-lg); padding: var(--sp-3); margin-bottom: var(--sp-4); }
+.rxn-hero-canvas { display: flex; align-items: center; gap: var(--sp-4); overflow-x: auto; padding: var(--sp-2) 0; scroll-snap-type: x proximity; position: relative; }
+.rxn-hero-canvas::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 40px; background: linear-gradient(to right, transparent, var(--c-surface-alt)); pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+.rxn-hero-canvas.is-scrollable::after { opacity: 1; }
+.rxn-hero-figure { flex-shrink: 0; text-align: center; }
+.rxn-hero-figure .molecule-img { width: 300px; height: 220px; object-fit: contain; background: #fff; border: 1px solid var(--c-border-light); border-radius: var(--radius-md); cursor: pointer; }
+.rxn-hero-figure .molecule-placeholder { width: 300px; height: 220px; display: flex; align-items: center; justify-content: center; background: var(--c-surface); border: 1px dashed var(--c-border); border-radius: var(--radius-md); color: var(--c-text-muted); font-size: var(--fs-sm); font-style: italic; text-align: center; padding: var(--sp-2); }
+.rxn-hero-figure figcaption { font-size: var(--fs-sm); color: var(--c-text-secondary); margin-top: var(--sp-1); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rxn-hero-plus { font-size: var(--fs-xl); font-weight: 700; color: var(--c-text-secondary); flex-shrink: 0; }
+.rxn-hero-arrow { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: var(--sp-1); min-width: 120px; }
+.rxn-hero-arrow-symbol { font-size: 24px; font-weight: 700; color: var(--c-accent); letter-spacing: -2px; }
+.rxn-hero-summary { font-size: var(--fs-sm); color: var(--c-text-secondary); text-align: center; max-width: 200px; }
+.rxn-hero-additives { display: flex; gap: var(--sp-2); flex-wrap: wrap; justify-content: center; margin-top: var(--sp-1); }
+.rxn-hero-figure-sm { flex-shrink: 0; text-align: center; }
+.rxn-hero-figure-sm .molecule-img { width: 120px; height: 90px; object-fit: contain; background: #fff; border: 1px solid var(--c-border-light); border-radius: var(--radius-sm); cursor: pointer; }
+.rxn-hero-figure-sm figcaption { font-size: var(--fs-xs); color: var(--c-text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rxn-hero-chip { display: inline-block; font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--radius-sm); background: var(--c-surface); border: 1px solid var(--c-border); color: var(--c-text-secondary); }
+.rxn-hero-solvents { display: flex; gap: var(--sp-1); flex-wrap: wrap; justify-content: center; }
+.rxn-hero-yield { font-size: var(--fs-md); font-weight: 700; color: var(--c-confirmed); background: var(--c-confirmed-bg); padding: var(--sp-1) var(--sp-3); border-radius: var(--radius-md); flex-shrink: 0; align-self: center; }
+
+/* ===== Tabs ===== */
+.tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--c-border-light); margin-bottom: var(--sp-4); }
+.tab-btn { padding: var(--sp-2) var(--sp-4); font-size: var(--fs-base); font-weight: 600; color: var(--c-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; white-space: nowrap; }
+.tab-btn:hover { color: var(--c-accent); }
+.tab-btn.active { color: var(--c-accent); border-bottom-color: var(--c-accent); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ===== Participant grid ===== */
+.participant-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-3); }
+.participant-card { border: 1px solid var(--c-border-light); border-radius: var(--radius-md); background: var(--c-surface); overflow: hidden; transition: border-color 0.15s; }
+.participant-card:hover { border-color: var(--c-border); }
+.participant-card.stale { border-color: var(--c-stale); border-width: 2px; background: var(--c-stale-bg); }
+.pcard-img-wrap { cursor: pointer; background: #fff; text-align: center; padding: var(--sp-2); min-height: 120px; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--c-border-light); }
+.pcard-img-wrap .molecule-img { max-width: 100%; max-height: 240px; object-fit: contain; }
+.pcard-img-wrap .molecule-placeholder { max-width: 100%; min-height: 80px; }
+.pcard-info { padding: var(--sp-3); }
+.pcard-header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-2); }
+.pcard-header .pcard-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pcard-header .pcard-role { font-weight: 700; font-size: var(--fs-base); color: var(--c-text); display: flex; align-items: center; gap: var(--sp-1); }
+.pcard-header .pcard-name { font-size: var(--fs-sm); color: var(--c-text-secondary); }
+.pcard-header .pcard-right { display: flex; gap: var(--sp-1); align-items: center; flex-shrink: 0; }
+.state-badge { font-size: var(--fs-xs); padding: 2px 7px; border-radius: 3px; font-weight: 500; white-space: nowrap; }
+.state-resolved { background: var(--c-confirmed-bg); color: var(--c-confirmed); }
+.state-unresolved { background: var(--c-needs-review-bg); color: var(--c-needs-review); }
+.state-not_attempted { background: #f3f4f6; color: var(--c-text-muted); }
+.stale-badge { background: var(--c-stale); color: #fff; font-size: var(--fs-xs); padding: 2px 7px; border-radius: 3px; font-weight: 500; white-space: nowrap; }
+.pcard-details { margin-top: var(--sp-2); font-size: var(--fs-sm); }
+.pcard-details summary { cursor: pointer; color: var(--c-accent); font-size: var(--fs-xs); padding: var(--sp-1) 0; }
+.pcard-details summary:hover { text-decoration: underline; }
+.pcard-meta { display: flex; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--c-text-muted); margin-top: var(--sp-1); flex-wrap: wrap; }
+
+/* ===== Molecule images ===== */
+.molecule-img { max-width: 100%; object-fit: contain; background: #fff; }
+.molecule-placeholder { display: flex; align-items: center; justify-content: center; min-height: 80px; padding: var(--sp-3); background: var(--c-surface-alt); border: 1px dashed var(--c-border); border-radius: var(--radius-md); color: var(--c-text-muted); font-size: var(--fs-sm); font-style: italic; text-align: center; }
+.molecule-load-error { display: flex; align-items: center; justify-content: center; min-height: 80px; padding: var(--sp-3); background: var(--c-rejected-bg); border: 1px dashed var(--c-error); border-radius: var(--radius-md); color: var(--c-error); font-size: var(--fs-sm); text-align: center; }
+
+/* ===== SMILES ===== */
+.smiles-row { font-family: var(--font-mono); font-size: var(--fs-sm); word-break: break-all; margin: var(--sp-1) 0; display: flex; align-items: flex-start; gap: var(--sp-1); }
+.smiles-row code { flex: 1; background: var(--c-surface-alt); padding: 2px 5px; border-radius: 3px; }
+.smiles-copy { font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px; border: 1px solid var(--c-border); color: var(--c-text-secondary); white-space: nowrap; }
+.smiles-copy:hover { border-color: var(--c-accent); color: var(--c-accent); }
+
+/* ===== Issues ===== */
+.issues-list { margin-top: var(--sp-1); padding-left: var(--sp-4); }
+.issues-list li { font-size: var(--fs-sm); padding: 1px 0; list-style: disc; display: flex; align-items: baseline; gap: var(--sp-1); }
+.issue-error { color: var(--c-error); }
+.issue-warning { color: var(--c-warning); }
+.issue-info { color: var(--c-info); }
+.field-ev-hint { font-size: var(--fs-xs); color: var(--c-warning); margin-top: var(--sp-1); font-style: italic; }
+
+/* ===== Stereo ===== */
+.stereo-entry { margin-bottom: var(--sp-5); border: 1px solid var(--c-border-light); border-radius: var(--radius-md); overflow: hidden; }
+.stereo-entry-title { font-size: var(--fs-md); font-weight: 700; padding: var(--sp-2) var(--sp-3); background: var(--c-surface-alt); border-bottom: 1px solid var(--c-border-light); }
+.stereo-entry-body { display: flex; gap: var(--sp-4); padding: var(--sp-3); }
+.stereo-img-area { flex: 1; min-width: 0; }
+.stereo-mode-btns { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-2); flex-wrap: wrap; }
+.stereo-mode-btn { font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; }
+.stereo-mode-btn:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.stereo-mode-btn.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+.stereo-img-container { background: #fff; border: 1px solid var(--c-border-light); border-radius: var(--radius-md); text-align: center; min-height: 200px; display: flex; align-items: center; justify-content: center; }
+.stereo-img-container .molecule-img { max-width: 100%; max-height: 480px; object-fit: contain; }
+.stereo-img-container .stereo-diff-img { display: none; }
+.stereo-img-container .molecule-placeholder { width: 100%; min-height: 200px; }
+.stereo-tables { flex: 0 0 280px; overflow-x: auto; }
+.stereo-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.stereo-table th, .stereo-table td { padding: 4px 8px; border: 1px solid var(--c-border-light); text-align: left; }
+.stereo-table th { background: #eef2ff; font-weight: 600; font-size: var(--fs-xs); }
+.stereo-unspecified { background: #fef3c7; }
+.stereo-na { font-size: var(--fs-sm); color: var(--c-text-muted); font-style: italic; padding: var(--sp-2); }
+.stereo-no-centers { font-size: var(--fs-sm); color: var(--c-text-muted); padding: var(--sp-2); }
+.stereo-analysis-note { font-size: var(--fs-xs); color: var(--c-text-muted); font-style: italic; margin-top: var(--sp-2); }
+
+/* ===== Gold ===== */
+.gold-alignment { font-size: var(--fs-sm); color: var(--c-text-secondary); margin-bottom: var(--sp-3); padding: var(--sp-2) var(--sp-3); background: var(--c-gold-bg); border-radius: var(--radius-sm); }
+.gold-pair { margin-bottom: var(--sp-4); border: 1px solid var(--c-gold-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-gold-bg); }
+.gold-pair-figures { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+.gold-figure { text-align: center; }
+.gold-figure figcaption { font-size: var(--fs-sm); font-weight: 600; color: var(--c-text-secondary); margin-bottom: var(--sp-1); }
+.gold-figure .molecule-img { width: 100%; min-height: 240px; object-fit: contain; background: #fff; border: 1px solid var(--c-border-light); border-radius: var(--radius-md); cursor: pointer; }
+.gold-figure .molecule-placeholder { width: 100%; min-height: 240px; }
+.gold-figure .gold-diff-img { display: none; }
+.gold-pair-meta { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; }
+.gold-pair-label { font-size: var(--fs-sm); font-weight: 600; padding: 2px 8px; border-radius: var(--radius-sm); background: #dbeafe; color: #1e40af; }
+.gold-pair-reason { font-size: var(--fs-xs); color: var(--c-text-muted); font-style: italic; }
+.gold-diff-toggle { font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; }
+.gold-diff-toggle:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.gold-diff-toggle.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+.gold-section { background: var(--c-gold-bg); border: 1px solid var(--c-gold-border); border-radius: var(--radius-md); padding: var(--sp-3); margin-top: var(--sp-2); }
+.gold-section .gold-title { font-weight: 700; font-size: var(--fs-base); margin-bottom: var(--sp-2); }
+.gold-section p { font-size: var(--fs-base); margin-bottom: var(--sp-1); }
+.gold-section .gold-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); margin-top: var(--sp-2); }
+.gold-section .gold-table th, .gold-section .gold-table td { padding: 4px 6px; border: 1px solid #e5d89c; text-align: left; }
+.gold-section .gold-table th { background: #fef08a; font-weight: 600; }
+
+/* ===== Conditions ===== */
+.section { margin-bottom: var(--sp-5); }
+.section-title { font-size: var(--fs-md); font-weight: 700; color: #374151; margin-bottom: var(--sp-2); padding-bottom: var(--sp-1); border-bottom: 1px solid var(--c-border-light); display: flex; align-items: center; gap: var(--sp-2); }
+.section-title .st-count { font-size: var(--fs-xs); font-weight: 400; color: var(--c-text-muted); background: var(--c-surface-alt); padding: 0 5px; border-radius: 3px; }
+.cond-table { width: 100%; border-collapse: collapse; font-size: var(--fs-base); table-layout: fixed; }
+.cond-table th, .cond-table td { padding: 5px 8px; border: 1px solid var(--c-border-light); text-align: left; vertical-align: top; }
+.cond-table th { background: #f1f5f9; font-weight: 600; font-size: var(--fs-sm); color: #475569; position: sticky; top: 0; z-index: 1; }
+.cond-table td { font-size: var(--fs-base); }
+.cond-table .col-field { width: 14%; }
+.cond-table .col-value { width: 18%; }
+.cond-table .col-orig { width: 18%; }
+.cond-table .col-source { width: 12%; }
+.cond-table .col-diff { width: 18%; }
+.cond-table .col-conclusion { width: 20%; }
+.evidence-tag { display: inline-block; font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px; background: #dbeafe; color: #1e40af; }
+.legacy-tag { display: inline-block; font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px; background: var(--c-pending-bg); color: var(--c-pending); }
+
+/* ===== Action buttons ===== */
+.target-actions { display: flex; gap: var(--sp-1); margin-top: var(--sp-2); flex-wrap: wrap; align-items: center; }
+.target-actions .act-btn { font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; font-weight: 500; }
+.target-actions .act-btn:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.target-actions .act-btn.active-confirm { background: var(--c-confirmed-bg); color: var(--c-confirmed); border-color: var(--c-confirmed); }
+.target-actions .act-btn.active-pending { background: var(--c-pending-bg); color: var(--c-pending); border-color: var(--c-pending); }
+.target-actions .act-btn.active-na { background: #f3f4f6; color: var(--c-text-muted); border-color: #d1d5db; }
+.target-actions .act-btn.active-reject { background: var(--c-rejected-bg); color: var(--c-rejected); border-color: var(--c-rejected); }
+.target-actions .act-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--c-border-light); color: var(--c-text-muted); }
+.reason-input { font-size: var(--fs-xs); padding: 2px 6px; border: 1px solid var(--c-border); border-radius: var(--radius-sm); width: 180px; display: none; }
+.reason-input.visible { display: inline-block; }
+.reason-input:invalid { border-color: var(--c-error); }
+.revise-input { font-size: var(--fs-xs); padding: 2px 6px; border: 1px solid var(--c-accent); border-radius: var(--radius-sm); width: 220px; font-family: var(--font-mono); }
+
+/* ===== Evidence drawer ===== */
+.evidence-pane { display: none; position: fixed; right: 0; top: 44px; bottom: 40px; width: 360px; z-index: 30; box-shadow: -4px 0 16px rgba(0,0,0,0.12); border-left: 1px solid var(--c-border); background: var(--c-surface-alt); flex-direction: column; overflow: hidden; }
+.evidence-pane.drawer-open { display: flex; }
+.ev-header { padding: var(--sp-2) var(--sp-3); font-weight: 700; font-size: var(--fs-base); border-bottom: 1px solid var(--c-border-light); color: #374151; display: flex; align-items: center; gap: var(--sp-2); }
+.ev-header .ev-count { font-weight: 400; color: var(--c-text-muted); font-size: var(--fs-xs); }
+.ev-list { flex: 1; overflow-y: auto; }
+.ev-item { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--c-border-light); cursor: pointer; transition: background 0.1s; }
+.ev-item:hover { background: #e0e7ff; }
+.ev-item.highlighted { background: #c7d2fe; border-left: 3px solid var(--c-accent); }
+.ev-item .ev-meta { display: flex; align-items: center; gap: var(--sp-1); margin-bottom: 2px; }
+.ev-item .ev-kind { font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px; background: #dbeafe; color: #1e40af; font-weight: 500; }
+.ev-item .ev-page { font-size: var(--fs-xs); color: var(--c-text-muted); }
+.ev-item .ev-text { font-size: var(--fs-sm); color: var(--c-text); max-height: 72px; overflow: hidden; line-height: 1.4; word-break: break-word; }
+.ev-item .ev-asset { font-size: var(--fs-xs); color: var(--c-text-muted); margin-top: 2px; word-break: break-all; }
+.ev-item .ev-asset img { max-width: 100%; max-height: 180px; margin-top: var(--sp-1); border: 1px solid var(--c-border-light); border-radius: var(--radius-sm); }
+.ev-missing { padding: var(--sp-3); color: var(--c-error); font-size: var(--fs-sm); background: var(--c-rejected-bg); margin: var(--sp-2); border-radius: var(--radius-sm); }
+.ev-ref-only { padding: var(--sp-3); color: var(--c-warning); font-size: var(--fs-sm); background: var(--c-pending-bg); margin: var(--sp-2); border-radius: var(--radius-sm); }
+.ev-empty { padding: var(--sp-4); text-align: center; color: var(--c-text-muted); font-size: var(--fs-sm); font-style: italic; }
+
+/* ===== Footer ===== */
+.footer { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--sp-3); padding: 0 var(--sp-4); background: #f8fafc; border-top: 1px solid var(--c-border); font-size: var(--fs-sm); color: var(--c-text-secondary); }
+.footer .footer-nav { display: flex; gap: var(--sp-1); }
+.footer .footer-btn { padding: 3px 10px; font-size: var(--fs-xs); border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; }
+.footer .footer-btn:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.footer .footer-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.footer .footer-btn.primary { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+.footer .footer-btn.primary:hover { background: var(--c-accent-hover); }
+.footer .footer-btn.export { background: #059669; color: #fff; border-color: #059669; }
+.footer .footer-btn.export:hover { background: #047857; }
+.footer .footer-spacer { flex: 1; }
+.footer .pending-summary { font-size: var(--fs-xs); color: var(--c-text-muted); }
+.footer .pending-count { font-weight: 700; color: var(--c-accent); }
+
+/* ===== Lightbox ===== */
+.lightbox-overlay { display: none; position: fixed; inset: 0; z-index: 100; align-items: center; justify-content: center; }
+.lightbox-overlay.active { display: flex; }
+.lightbox-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.8); }
+.lightbox-img { position: relative; max-width: 90vw; max-height: 85vh; object-fit: contain; z-index: 1; }
+.lightbox-close { position: absolute; top: 16px; right: 16px; z-index: 2; font-size: 32px; color: #fff; background: rgba(0,0,0,0.5); border: none; cursor: pointer; width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.lightbox-close:hover { background: rgba(0,0,0,0.7); }
+
+/* ===== Empty states ===== */
+.empty-state { padding: var(--sp-6); text-align: center; color: var(--c-text-muted); }
+.empty-state .es-title { font-size: var(--fs-lg); font-weight: 600; margin-bottom: var(--sp-2); color: var(--c-text-secondary); }
+.empty-state .es-desc { font-size: var(--fs-base); max-width: 360px; margin: 0 auto; line-height: 1.6; }
+.empty-state .es-icon { font-size: 32px; margin-bottom: var(--sp-2); color: var(--c-text-muted); }
+.legacy-banner { background: var(--c-pending-bg); border: 1px solid var(--c-gold-border); border-radius: var(--radius-md); padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); font-size: var(--fs-sm); color: #92400e; display: flex; align-items: center; gap: var(--sp-2); }
+.authoritative-note { font-size: var(--fs-xs); color: var(--c-text-muted); font-style: italic; padding: var(--sp-1) 0; }
+
+/* ===== Responsive ===== */
+@media (max-width: 1100px) { .app { grid-template-columns: 220px 1fr; } .stereo-entry-body { flex-direction: column; } .stereo-tables { flex: none; } }
+@media (max-width: 700px) { .app { grid-template-columns: 1fr; } .queue-pane { position: fixed; left: 0; top: 44px; bottom: 40px; width: 280px; z-index: 20; box-shadow: 4px 0 16px rgba(0,0,0,0.12); transform: translateX(-100%); transition: transform 0.2s; } .queue-pane.mobile-open { transform: translateX(0); } .mobile-queue-toggle { display: inline-flex !important; } .participant-grid { grid-template-columns: 1fr; } .gold-pair-figures { grid-template-columns: 1fr; } }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c1c7d0; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <div class="header" role="banner">
+    <div class="title-area"><h1 id="header-title">ChemEx-Lit Review</h1></div>
+    <div class="meta-chips" id="header-meta">
+      <span class="meta-chip" id="chip-version"><span class="chip-label">数据版本</span> <span id="data-version">--</span></span>
+      <span class="meta-chip" id="chip-progress"><span class="chip-label">审核进度</span> <span id="review-progress">0/0</span></span>
+      <span class="meta-chip" id="chip-gold"><span class="chip-label">金标</span> <span id="gold-version">未提供金标</span></span>
+    </div>
+    <div class="actions-group">
+      <button class="btn-header" id="btn-import" aria-label="导入草稿">导入草稿</button>
+      <button class="btn-header btn-primary" id="btn-export-header" aria-label="导出审核包">导出审核包</button>
+      <button class="btn-header" id="btn-toggle-evidence" aria-label="切换证据面板">证据</button>
+      <button class="btn-header mobile-queue-toggle" id="btn-toggle-queue" aria-label="切换队列" style="display:none">队列</button>
+    </div>
+  </div>
+
+  <!-- QUEUE PANE -->
+  <div class="queue-pane" id="queue-pane" role="navigation" aria-label="反应队列">
+    <div class="queue-toolbar">
+      <input type="text" class="queue-search" id="queue-search" placeholder="搜索反应编号/标签/名称/位置…" aria-label="搜索反应">
+      <div class="filter-chips" role="group" aria-label="过滤条件">
+        <button class="filter-chip active" data-filter="all" aria-pressed="true">全部</button>
+        <button class="filter-chip" data-filter="unreviewed" aria-pressed="false">未审</button>
+        <button class="filter-chip" data-filter="missing_structure" aria-pressed="false">缺结构</button>
+        <button class="filter-chip" data-filter="stereo_pending" aria-pressed="false">立体待定</button>
+        <button class="filter-chip" data-filter="gold_diff" aria-pressed="false">金标差异</button>
+      </div>
+    </div>
+    <div class="queue-count" id="queue-count" aria-live="polite">3 条反应</div>
+    <div class="list queue-list" id="queue-list" role="listbox" aria-label="反应列表">
+      
+      
+      <div class="queue-item selected" role="option" aria-selected="true" data-idx="0" data-rid="rxn-001" data-human="unreviewed" data-machine="clean" data-has-gold="true" data-search="rxn-001 1a 1b 2a     bromobenzene phenylboronic acid biphenyl Pd(PPh3)4 K2CO3 THF H2O">
+        
+        <img class="qi-thumb" src="review_assets/27dacb226b18e24b-ff4abd31.png" alt="" loading="lazy">
+        
+        <div class="qi-content">
+          <div class="qi-top">
+            <span class="qi-rid">rxn-001</span>
+            <span class="qi-loc">#1</span>
+          </div>
+          <div class="qi-badges">
+            <span class="badge badge-unreviewed" title="人工审核: unreviewed">
+              <span class="badge-icon" aria-hidden="true">&mdash;</span>
+              未审核
+            </span>
+            <span class="badge badge-clean" title="机器校验: clean">
+              <span class="badge-icon" aria-hidden="true">&#10003;</span>
+              机器校验通过
+            </span>
+            <span class="badge badge-gold" aria-label="有金标">gold</span>
+          </div>
+        </div>
+      </div>
+      
+      
+      <div class="queue-item" role="option" aria-selected="false" data-idx="1" data-rid="rxn-002" data-human="unreviewed" data-machine="clean" data-has-gold="true" data-search="rxn-002 3a 3b 4a   (S)-butan-2-ol acetyl chloride sec-butyl acetate Et3N CH2Cl2">
+        
+        <img class="qi-thumb" src="review_assets/43a417ebd2df4f22-ff4abd31.png" alt="" loading="lazy">
+        
+        <div class="qi-content">
+          <div class="qi-top">
+            <span class="qi-rid">rxn-002</span>
+            <span class="qi-loc">#2</span>
+          </div>
+          <div class="qi-badges">
+            <span class="badge badge-unreviewed" title="人工审核: unreviewed">
+              <span class="badge-icon" aria-hidden="true">&mdash;</span>
+              未审核
+            </span>
+            <span class="badge badge-clean" title="机器校验: clean">
+              <span class="badge-icon" aria-hidden="true">&#10003;</span>
+              机器校验通过
+            </span>
+            <span class="badge badge-gold" aria-label="有金标">gold</span>
+          </div>
+        </div>
+      </div>
+      
+      
+      <div class="queue-item" role="option" aria-selected="false" data-idx="2" data-rid="rxn-003" data-human="unreviewed" data-machine="clean" data-has-gold="true" data-search="rxn-003 5a 6a   unresolved substrate benzyl alcohol NaBH4 MeOH">
+        
+        <img class="qi-thumb" src="review_assets/3f5d5a797945beb3-ff4abd31.png" alt="" loading="lazy">
+        
+        <div class="qi-content">
+          <div class="qi-top">
+            <span class="qi-rid">rxn-003</span>
+            <span class="qi-loc">#3</span>
+          </div>
+          <div class="qi-badges">
+            <span class="badge badge-unreviewed" title="人工审核: unreviewed">
+              <span class="badge-icon" aria-hidden="true">&mdash;</span>
+              未审核
+            </span>
+            <span class="badge badge-clean" title="机器校验: clean">
+              <span class="badge-icon" aria-hidden="true">&#10003;</span>
+              机器校验通过
+            </span>
+            <span class="badge badge-gold" aria-label="有金标">gold</span>
+          </div>
+        </div>
+      </div>
+      
+    </div>
+  </div>
+
+  <!-- DETAIL PANE -->
+  <div class="detail-pane" id="detail-pane" role="main" aria-label="反应详情">
+    
+    
+    
+    <div class="reaction-detail" data-idx="0" style="">
+
+      <div class="rxn-header">
+        <h2>rxn-001</h2>
+        <div class="rxn-badges">
+          <span class="badge badge-unreviewed" title="unreviewed">未审核</span>
+          <span class="badge badge-clean" title="clean">机器校验通过</span>
+        </div>
+        <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">位置 #1</span>
+      </div>
+
+      
+
+      <!-- Reaction overview hero -->
+      <div class="rxn-hero">
+        <div class="rxn-hero-canvas" id="hero-canvas-0">
+          
+          
+            
+          
+            
+          
+            
+          
+            
+              
+            
+          
+            
+              
+            
+          
+            
+              
+            
+          
+            
+              
+            
+          
+
+          
+          
+            
+            <figure class="rxn-hero-figure">
+              
+                <img class="molecule-img " src="review_assets/e16cf00bdc42a076-ff4abd31.svg" data-fallback-src="review_assets/e16cf00bdc42a076-ff4abd31.png" alt="1a 结构图" decoding="async">
+              
+              <figcaption>1a</figcaption>
+            </figure>
+          
+            <span class="rxn-hero-plus" aria-hidden="true">+</span>
+            <figure class="rxn-hero-figure">
+              
+                <img class="molecule-img " src="review_assets/8688c09a3a54367b-ff4abd31.svg" data-fallback-src="review_assets/8688c09a3a54367b-ff4abd31.png" alt="1b 结构图" decoding="async">
+              
+              <figcaption>1b</figcaption>
+            </figure>
+          
+
+          <div class="rxn-hero-arrow">
+            <span class="rxn-hero-arrow-symbol" aria-hidden="true">——→</span>
+            
+            <div class="rxn-hero-summary">Pd(PPh3)4 · K2CO3 · THF · H2O · 65 °C · 12 h · 收率 82%</div>
+            
+            
+            <div class="rxn-hero-solvents">
+              <span class="rxn-hero-chip">THF</span><span class="rxn-hero-chip">H2O</span>
+            </div>
+            
+            
+            <div class="rxn-hero-additives">
+              
+                
+                <figure class="rxn-hero-figure-sm">
+                  <img class="molecule-img " src="review_assets/a5248280f154ef94-ff4abd31.svg" data-fallback-src="review_assets/a5248280f154ef94-ff4abd31.png" alt="Pd(PPh3)4 结构图" decoding="async" loading="lazy">
+                  <figcaption>Pd(PPh3)4</figcaption>
+                </figure>
+                
+              
+                
+                <span class="rxn-hero-chip">K2CO3</span>
+                
+              
+            </div>
+            
+          </div>
+
+          
+          
+            <figure class="rxn-hero-figure">
+              
+                <img class="molecule-img " src="review_assets/27dacb226b18e24b-ff4abd31.svg" data-fallback-src="review_assets/27dacb226b18e24b-ff4abd31.png" alt="2a 结构图" decoding="async">
+              
+              <figcaption>2a</figcaption>
+            </figure>
+            <span class="rxn-hero-yield">收率 82.0%</span>
+          
+        </div>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="tab-bar" role="tablist">
+        <button class="tab-btn active" data-tab="participants" role="tab" aria-selected="true">参与物结构</button>
+        <button class="tab-btn" data-tab="stereo" role="tab" aria-selected="false">立体化学</button>
+        <button class="tab-btn" data-tab="gold" role="tab" aria-selected="false">金标比对</button>
+        <button class="tab-btn" data-tab="conditions" role="tab" aria-selected="false">条件</button>
+      </div>
+
+      <!-- Tab: 参与物结构 -->
+      <div class="tab-panel active" data-tab="participants" role="tabpanel">
+        
+        <div class="participant-grid">
+          
+          <div class="participant-card" data-pid="rxn-001:reactant:1" data-evidence-ids="e1">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/e16cf00bdc42a076-ff4abd31.svg" data-fallback-src="review_assets/e16cf00bdc42a076-ff4abd31.png" alt="1a 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    1a
+                    
+                  </div>
+                  <div class="pcard-name">bromobenzene</div>
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-001:reactant:1">Brc1ccccc1</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-001:reactant:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-001:reactant:1</span>
+                  <span title="角色">reactant</span>
+                  <span class="mono" title="字段路径">reactants.0.smiles</span>
+                </div>
+                
+                
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-001:reactant:1" data-field-path="reactants.0.smiles" data-old-value="Brc1ccccc1">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 1a">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 1a">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 1a">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 1a">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-001:reactant:2" data-evidence-ids="e1">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/8688c09a3a54367b-ff4abd31.svg" data-fallback-src="review_assets/8688c09a3a54367b-ff4abd31.png" alt="1b 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    1b
+                    
+                  </div>
+                  <div class="pcard-name">phenylboronic acid</div>
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-001:reactant:2">OB(O)c1ccccc1</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-001:reactant:2')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-001:reactant:2</span>
+                  <span title="角色">reactant</span>
+                  <span class="mono" title="字段路径">reactants.1.smiles</span>
+                </div>
+                
+                
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-001:reactant:2" data-field-path="reactants.1.smiles" data-old-value="OB(O)c1ccccc1">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 1b">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 1b">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 1b">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 1b">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-001:product:1" data-evidence-ids="e1">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/27dacb226b18e24b-ff4abd31.svg" data-fallback-src="review_assets/27dacb226b18e24b-ff4abd31.png" alt="2a 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    2a
+                    
+                  </div>
+                  <div class="pcard-name">biphenyl</div>
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-001:product:1">c1ccc(-c2ccccc2)cc1</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-001:product:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-001:product:1</span>
+                  <span title="角色">product</span>
+                  <span class="mono" title="字段路径">products.0.smiles</span>
+                </div>
+                
+                
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-001:product:1" data-field-path="products.0.smiles" data-old-value="c1ccc(-c2ccccc2)cc1">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 2a">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 2a">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 2a">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 2a">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-001:catalyst:1" data-evidence-ids="e1">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/a5248280f154ef94-ff4abd31.svg" data-fallback-src="review_assets/a5248280f154ef94-ff4abd31.png" alt="Pd(PPh3)4 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    Pd(PPh3)4
+                    
+                  </div>
+                  
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-001:catalyst:1">[Pd](P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-001:catalyst:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-001:catalyst:1</span>
+                  <span title="角色">catalyst</span>
+                  
+                </div>
+                
+                
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-001:catalyst:1" data-field-path="" data-old-value="[Pd](P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 Pd(PPh3)4">确认</button>
+                <button class="act-btn" data-op="revise" disabled title="该目标不支持在线修订" aria-label="修订参与物 Pd(PPh3)4">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 Pd(PPh3)4">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 Pd(PPh3)4">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-001:reagent:2" data-evidence-ids="e1">
+            <div class="pcard-img-wrap">
+              
+                <div class="molecule-placeholder">结构未解析</div>
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    K2CO3
+                    <span class="badge badge-needs_review" style="font-size:var(--fs-xs)">结构未解析</span>
+                  </div>
+                  
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-unresolved" title="结构状态: unresolved">未解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-001:reagent:2</span>
+                  <span title="角色">reagent</span>
+                  <span class="mono" title="字段路径">reagents.1</span>
+                </div>
+                
+                <div class="field-ev-hint" aria-label="仅反应级参考">reaction-level reference only</div>
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-001:reagent:2" data-field-path="reagents.1" data-old-value="">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 K2CO3">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 K2CO3">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 K2CO3">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 K2CO3">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-001:solvent:1" data-evidence-ids="e1">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/92623ccd36bc322b-ff4abd31.svg" data-fallback-src="review_assets/92623ccd36bc322b-ff4abd31.png" alt="THF 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    THF
+                    
+                  </div>
+                  
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-001:solvent:1">C1CCOC1</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-001:solvent:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-001:solvent:1</span>
+                  <span title="角色">solvent</span>
+                  <span class="mono" title="字段路径">solvents.0</span>
+                </div>
+                
+                <div class="field-ev-hint" aria-label="仅反应级参考">reaction-level reference only</div>
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-001:solvent:1" data-field-path="solvents.0" data-old-value="C1CCOC1">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 THF">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 THF">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 THF">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 THF">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-001:solvent:2" data-evidence-ids="e1">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/c4694f2e93d5c4e7-ff4abd31.svg" data-fallback-src="review_assets/c4694f2e93d5c4e7-ff4abd31.png" alt="H2O 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    H2O
+                    
+                  </div>
+                  
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-001:solvent:2">O</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-001:solvent:2')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-001:solvent:2</span>
+                  <span title="角色">solvent</span>
+                  <span class="mono" title="字段路径">solvents.1</span>
+                </div>
+                
+                <div class="field-ev-hint" aria-label="仅反应级参考">reaction-level reference only</div>
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-001:solvent:2" data-field-path="solvents.1" data-old-value="O">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 H2O">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 H2O">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 H2O">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 H2O">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+        </div>
+        
+      </div>
+
+      <!-- Tab: 立体化学 -->
+      <div class="tab-panel" data-tab="stereo" role="tabpanel">
+        
+          
+          <div class="stereo-entry" data-pid="rxn-001:reactant:1">
+            <div class="stereo-entry-title">1a</div>
+            <div class="stereo-entry-body">
+              <div class="stereo-img-area">
+                <div class="stereo-mode-btns" data-pid="rxn-001:reactant:1">
+                  <button class="stereo-mode-btn active" data-mode="normal">普通图</button>
+                  <button class="stereo-mode-btn" data-mode="stereo">立体标注图</button>
+                  <button class="stereo-mode-btn" data-mode="atommap">原子编号图</button>
+                </div>
+                <div class="stereo-img-container">
+                  <img class="molecule-img stereo-img" src="review_assets/e16cf00bdc42a076-ff4abd31.svg" data-fallback-src="review_assets/e16cf00bdc42a076-ff4abd31.png" alt="1a 普通结构图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/e16cf00bdc42a076-8a6c2966.svg" data-fallback-src="review_assets/e16cf00bdc42a076-8a6c2966.png" alt="1a 立体标注图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/e16cf00bdc42a076-4055fa2d.svg" data-fallback-src="review_assets/e16cf00bdc42a076-4055fa2d.png" alt="1a 原子编号图" decoding="async" loading="lazy">
+                  
+                </div>
+              </div>
+              <div class="stereo-tables">
+                
+                  <div class="stereo-no-centers">未检测到立体中心</div>
+                  
+                  
+                
+              </div>
+            </div>
+          </div>
+          
+        
+          
+          <div class="stereo-entry" data-pid="rxn-001:reactant:2">
+            <div class="stereo-entry-title">1b</div>
+            <div class="stereo-entry-body">
+              <div class="stereo-img-area">
+                <div class="stereo-mode-btns" data-pid="rxn-001:reactant:2">
+                  <button class="stereo-mode-btn active" data-mode="normal">普通图</button>
+                  <button class="stereo-mode-btn" data-mode="stereo">立体标注图</button>
+                  <button class="stereo-mode-btn" data-mode="atommap">原子编号图</button>
+                </div>
+                <div class="stereo-img-container">
+                  <img class="molecule-img stereo-img" src="review_assets/8688c09a3a54367b-ff4abd31.svg" data-fallback-src="review_assets/8688c09a3a54367b-ff4abd31.png" alt="1b 普通结构图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/8688c09a3a54367b-8a6c2966.svg" data-fallback-src="review_assets/8688c09a3a54367b-8a6c2966.png" alt="1b 立体标注图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/8688c09a3a54367b-4055fa2d.svg" data-fallback-src="review_assets/8688c09a3a54367b-4055fa2d.png" alt="1b 原子编号图" decoding="async" loading="lazy">
+                  
+                </div>
+              </div>
+              <div class="stereo-tables">
+                
+                  <div class="stereo-no-centers">未检测到立体中心</div>
+                  
+                  
+                
+              </div>
+            </div>
+          </div>
+          
+        
+          
+          <div class="stereo-entry" data-pid="rxn-001:product:1">
+            <div class="stereo-entry-title">2a</div>
+            <div class="stereo-entry-body">
+              <div class="stereo-img-area">
+                <div class="stereo-mode-btns" data-pid="rxn-001:product:1">
+                  <button class="stereo-mode-btn active" data-mode="normal">普通图</button>
+                  <button class="stereo-mode-btn" data-mode="stereo">立体标注图</button>
+                  <button class="stereo-mode-btn" data-mode="atommap">原子编号图</button>
+                </div>
+                <div class="stereo-img-container">
+                  <img class="molecule-img stereo-img" src="review_assets/27dacb226b18e24b-ff4abd31.svg" data-fallback-src="review_assets/27dacb226b18e24b-ff4abd31.png" alt="2a 普通结构图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/27dacb226b18e24b-8a6c2966.svg" data-fallback-src="review_assets/27dacb226b18e24b-8a6c2966.png" alt="2a 立体标注图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/27dacb226b18e24b-4055fa2d.svg" data-fallback-src="review_assets/27dacb226b18e24b-4055fa2d.png" alt="2a 原子编号图" decoding="async" loading="lazy">
+                  
+                </div>
+              </div>
+              <div class="stereo-tables">
+                
+                  <div class="stereo-no-centers">未检测到立体中心</div>
+                  
+                  
+                
+              </div>
+            </div>
+          </div>
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+      </div>
+
+      <!-- Tab: 金标比对 -->
+      <div class="tab-panel" data-tab="gold" role="tabpanel">
+        
+          
+          <div class="gold-alignment"><strong>对齐方式:</strong> mapped &mdash; reaction_key match | <strong>金标ID:</strong> <span class="mono">gold-001</span></div>
+          
+          
+          <div class="gold-pair" data-pid="2a">
+            <div class="gold-pair-figures">
+              <figure class="gold-figure">
+                <figcaption>提取结构: 2a</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/27dacb226b18e24b-ce1751ac.svg" data-fallback-src="review_assets/27dacb226b18e24b-ce1751ac.png" alt="提取结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+              <figure class="gold-figure">
+                <figcaption>金标结构: 2a</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/27dacb226b18e24b-ce1751ac.svg" data-fallback-src="review_assets/27dacb226b18e24b-ce1751ac.png" alt="金标结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+            </div>
+            <div class="gold-pair-meta">
+              <span class="gold-pair-label">一致</span>
+              
+              
+            </div>
+          </div>
+          
+          <div class="gold-pair" data-pid="1a">
+            <div class="gold-pair-figures">
+              <figure class="gold-figure">
+                <figcaption>提取结构: 1a</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/e16cf00bdc42a076-ce1751ac.svg" data-fallback-src="review_assets/e16cf00bdc42a076-ce1751ac.png" alt="提取结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+              <figure class="gold-figure">
+                <figcaption>金标结构: 1a</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/e16cf00bdc42a076-ce1751ac.svg" data-fallback-src="review_assets/e16cf00bdc42a076-ce1751ac.png" alt="金标结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+            </div>
+            <div class="gold-pair-meta">
+              <span class="gold-pair-label">一致</span>
+              
+              
+            </div>
+          </div>
+          
+          <div class="gold-pair" data-pid="1b">
+            <div class="gold-pair-figures">
+              <figure class="gold-figure">
+                <figcaption>提取结构: 1b</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/8688c09a3a54367b-ce1751ac.svg" data-fallback-src="review_assets/8688c09a3a54367b-ce1751ac.png" alt="提取结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+              <figure class="gold-figure">
+                <figcaption>金标结构: 1b</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/8688c09a3a54367b-ce1751ac.svg" data-fallback-src="review_assets/8688c09a3a54367b-ce1751ac.png" alt="金标结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+            </div>
+            <div class="gold-pair-meta">
+              <span class="gold-pair-label">一致</span>
+              
+              
+            </div>
+          </div>
+          
+        
+      </div>
+
+      <!-- Tab: 条件 -->
+      <div class="tab-panel" data-tab="conditions" role="tabpanel">
+        
+        <div style="overflow-x:auto">
+        <table class="cond-table" aria-label="反应条件表">
+          <colgroup><col class="col-field"><col class="col-value"><col class="col-orig"><col class="col-source"><col class="col-diff"><col class="col-conclusion"></colgroup>
+          <thead><tr><th>字段</th><th>提取值</th><th>文献原值/单位</th><th>来源</th><th>差异/问题</th><th>审核结论</th></tr></thead>
+          <tbody>
+          
+          <tr data-cid="rxn-001:cond:temperature" data-evidence-ids="e1">
+            <td class="mono" style="font-weight:600">temperature</td>
+            <td>65</td>
+            <td>65 <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">°C</span></td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-001:cond:temperature" data-field-path="temperature_c" data-old-value="65">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 temperature">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订条件 temperature">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 temperature">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-001:cond:time" data-evidence-ids="e1">
+            <td class="mono" style="font-weight:600">time</td>
+            <td>12 h</td>
+            <td>12 h</td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-001:cond:time" data-field-path="time" data-old-value="12 h">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 time">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订条件 time">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 time">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-001:cond:yield" data-evidence-ids="e1">
+            <td class="mono" style="font-weight:600">yield</td>
+            <td>82</td>
+            <td>82 <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">%</span></td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-001:cond:yield" data-field-path="yield_pct" data-old-value="82">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 yield">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订条件 yield">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 yield">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-001:cond:reagent" data-evidence-ids="e1">
+            <td class="mono" style="font-weight:600">reagent</td>
+            <td>Pd(PPh3)4</td>
+            <td>Pd(PPh3)4</td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-001:cond:reagent" data-field-path="" data-old-value="Pd(PPh3)4">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 reagent">确认</button>
+                <button class="act-btn" data-op="revise" disabled title="该目标不支持在线修订" aria-label="修订条件 reagent">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 reagent">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-001:cond:reagent" data-evidence-ids="e1">
+            <td class="mono" style="font-weight:600">reagent</td>
+            <td>K2CO3</td>
+            <td>K2CO3</td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-001:cond:reagent" data-field-path="" data-old-value="K2CO3">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 reagent">确认</button>
+                <button class="act-btn" data-op="revise" disabled title="该目标不支持在线修订" aria-label="修订条件 reagent">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 reagent">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-001:cond:solvent" data-evidence-ids="e1">
+            <td class="mono" style="font-weight:600">solvent</td>
+            <td>THF/H2O</td>
+            <td>THF/H2O</td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-001:cond:solvent" data-field-path="" data-old-value="THF/H2O">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 solvent">确认</button>
+                <button class="act-btn" data-op="revise" disabled title="该目标不支持在线修订" aria-label="修订条件 solvent">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 solvent">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          </tbody>
+        </table>
+        </div>
+        
+        <div class="section" style="margin-top:var(--sp-4)">
+          <div class="section-title">反应概况</div>
+          <div style="overflow-x:auto"><table class="cond-table" aria-label="反应概况表"><tbody>
+            <tr><td style="font-weight:600;width:25%">底物</td><td>1a, 1b</td></tr>
+            <tr><td style="font-weight:600">产物</td><td>2a</td></tr>
+            <tr><td style="font-weight:600">试剂</td><td>Pd(PPh3)4, K2CO3</td></tr>
+            <tr><td style="font-weight:600">溶剂</td><td>THF, H2O</td></tr>
+            <tr><td style="font-weight:600">温度</td><td>65.0 °C</td></tr>
+            <tr><td style="font-weight:600">时间</td><td>12 h</td></tr>
+            <tr><td style="font-weight:600">产率</td><td>82.0%</td></tr>
+          </tbody></table></div>
+        </div>
+      </div>
+
+      <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--c-border-light)">
+        <div class="target-actions" data-target-kind="reaction" data-target-id="rxn-001">
+          <button class="act-btn" data-op="confirm" aria-label="确认反应">确认反应</button>
+          <button class="act-btn" data-op="mark_pending" aria-label="待定反应">待定</button>
+          <button class="act-btn" data-op="reject" aria-label="拒绝反应">拒绝</button>
+          <input class="reason-input" type="text" placeholder="理由（待定/拒绝必填）" aria-label="审核理由">
+        </div>
+      </div>
+
+      
+
+    </div>
+    
+    
+    <div class="reaction-detail" data-idx="1" style="display:none">
+
+      <div class="rxn-header">
+        <h2>rxn-002</h2>
+        <div class="rxn-badges">
+          <span class="badge badge-unreviewed" title="unreviewed">未审核</span>
+          <span class="badge badge-clean" title="clean">机器校验通过</span>
+        </div>
+        <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">位置 #2</span>
+      </div>
+
+      
+
+      <!-- Reaction overview hero -->
+      <div class="rxn-hero">
+        <div class="rxn-hero-canvas" id="hero-canvas-1">
+          
+          
+            
+          
+            
+          
+            
+          
+            
+              
+            
+          
+            
+              
+            
+          
+
+          
+          
+            
+            <figure class="rxn-hero-figure">
+              
+                <img class="molecule-img " src="review_assets/9c0eb8a10a2a24fc-ff4abd31.svg" data-fallback-src="review_assets/9c0eb8a10a2a24fc-ff4abd31.png" alt="3a 结构图" decoding="async" loading="lazy">
+              
+              <figcaption>3a</figcaption>
+            </figure>
+          
+            <span class="rxn-hero-plus" aria-hidden="true">+</span>
+            <figure class="rxn-hero-figure">
+              
+                <img class="molecule-img " src="review_assets/cd75bb4862177bca-ff4abd31.svg" data-fallback-src="review_assets/cd75bb4862177bca-ff4abd31.png" alt="3b 结构图" decoding="async" loading="lazy">
+              
+              <figcaption>3b</figcaption>
+            </figure>
+          
+
+          <div class="rxn-hero-arrow">
+            <span class="rxn-hero-arrow-symbol" aria-hidden="true">——→</span>
+            
+            <div class="rxn-hero-summary">Et3N · CH2Cl2 · 0 °C · 2 h · 收率 75%</div>
+            
+            
+            <div class="rxn-hero-solvents">
+              <span class="rxn-hero-chip">CH2Cl2</span>
+            </div>
+            
+            
+            <div class="rxn-hero-additives">
+              
+                
+                <figure class="rxn-hero-figure-sm">
+                  <img class="molecule-img " src="review_assets/e0090ebb1b80e276-ff4abd31.svg" data-fallback-src="review_assets/e0090ebb1b80e276-ff4abd31.png" alt="Et3N 结构图" decoding="async" loading="lazy">
+                  <figcaption>Et3N</figcaption>
+                </figure>
+                
+              
+            </div>
+            
+          </div>
+
+          
+          
+            <figure class="rxn-hero-figure">
+              
+                <img class="molecule-img " src="review_assets/43a417ebd2df4f22-ff4abd31.svg" data-fallback-src="review_assets/43a417ebd2df4f22-ff4abd31.png" alt="4a 结构图" decoding="async" loading="lazy">
+              
+              <figcaption>4a</figcaption>
+            </figure>
+            <span class="rxn-hero-yield">收率 75.0%</span>
+          
+        </div>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="tab-bar" role="tablist">
+        <button class="tab-btn active" data-tab="participants" role="tab" aria-selected="true">参与物结构</button>
+        <button class="tab-btn" data-tab="stereo" role="tab" aria-selected="false">立体化学</button>
+        <button class="tab-btn" data-tab="gold" role="tab" aria-selected="false">金标比对</button>
+        <button class="tab-btn" data-tab="conditions" role="tab" aria-selected="false">条件</button>
+      </div>
+
+      <!-- Tab: 参与物结构 -->
+      <div class="tab-panel active" data-tab="participants" role="tabpanel">
+        
+        <div class="participant-grid">
+          
+          <div class="participant-card" data-pid="rxn-002:reactant:1" data-evidence-ids="e2">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/9c0eb8a10a2a24fc-ff4abd31.svg" data-fallback-src="review_assets/9c0eb8a10a2a24fc-ff4abd31.png" alt="3a 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    3a
+                    
+                  </div>
+                  <div class="pcard-name">(S)-butan-2-ol</div>
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-002:reactant:1">C[C@H](O)CC</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-002:reactant:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-002:reactant:1</span>
+                  <span title="角色">reactant</span>
+                  <span class="mono" title="字段路径">reactants.0.smiles</span>
+                </div>
+                
+                
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-002:reactant:1" data-field-path="reactants.0.smiles" data-old-value="C[C@H](O)CC">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 3a">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 3a">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 3a">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 3a">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-002:reactant:2" data-evidence-ids="e2">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/cd75bb4862177bca-ff4abd31.svg" data-fallback-src="review_assets/cd75bb4862177bca-ff4abd31.png" alt="3b 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    3b
+                    
+                  </div>
+                  <div class="pcard-name">acetyl chloride</div>
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-002:reactant:2">CC(=O)Cl</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-002:reactant:2')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-002:reactant:2</span>
+                  <span title="角色">reactant</span>
+                  <span class="mono" title="字段路径">reactants.1.smiles</span>
+                </div>
+                
+                
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-002:reactant:2" data-field-path="reactants.1.smiles" data-old-value="CC(=O)Cl">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 3b">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 3b">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 3b">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 3b">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-002:product:1" data-evidence-ids="e2">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/43a417ebd2df4f22-ff4abd31.svg" data-fallback-src="review_assets/43a417ebd2df4f22-ff4abd31.png" alt="4a 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    4a
+                    
+                  </div>
+                  <div class="pcard-name">sec-butyl acetate</div>
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-002:product:1">CC(=O)O[C@H](C)CC</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-002:product:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-002:product:1</span>
+                  <span title="角色">product</span>
+                  <span class="mono" title="字段路径">products.0.smiles</span>
+                </div>
+                
+                
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-002:product:1" data-field-path="products.0.smiles" data-old-value="CC(=O)O[C@H](C)CC">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 4a">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 4a">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 4a">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 4a">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-002:reagent:1" data-evidence-ids="e2">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/e0090ebb1b80e276-ff4abd31.svg" data-fallback-src="review_assets/e0090ebb1b80e276-ff4abd31.png" alt="Et3N 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    Et3N
+                    
+                  </div>
+                  
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-002:reagent:1">CCN(CC)CC</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-002:reagent:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-002:reagent:1</span>
+                  <span title="角色">reagent</span>
+                  <span class="mono" title="字段路径">reagents.0</span>
+                </div>
+                
+                <div class="field-ev-hint" aria-label="仅反应级参考">reaction-level reference only</div>
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-002:reagent:1" data-field-path="reagents.0" data-old-value="CCN(CC)CC">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 Et3N">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 Et3N">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 Et3N">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 Et3N">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-002:solvent:1" data-evidence-ids="e2">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/a910e51b8ef4ac4d-ff4abd31.svg" data-fallback-src="review_assets/a910e51b8ef4ac4d-ff4abd31.png" alt="CH2Cl2 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    CH2Cl2
+                    
+                  </div>
+                  
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-002:solvent:1">ClCCl</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-002:solvent:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-002:solvent:1</span>
+                  <span title="角色">solvent</span>
+                  <span class="mono" title="字段路径">solvents.0</span>
+                </div>
+                
+                <div class="field-ev-hint" aria-label="仅反应级参考">reaction-level reference only</div>
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-002:solvent:1" data-field-path="solvents.0" data-old-value="ClCCl">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 CH2Cl2">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 CH2Cl2">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 CH2Cl2">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 CH2Cl2">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+        </div>
+        
+      </div>
+
+      <!-- Tab: 立体化学 -->
+      <div class="tab-panel" data-tab="stereo" role="tabpanel">
+        
+          
+          <div class="stereo-entry" data-pid="rxn-002:reactant:1">
+            <div class="stereo-entry-title">3a</div>
+            <div class="stereo-entry-body">
+              <div class="stereo-img-area">
+                <div class="stereo-mode-btns" data-pid="rxn-002:reactant:1">
+                  <button class="stereo-mode-btn active" data-mode="normal">普通图</button>
+                  <button class="stereo-mode-btn" data-mode="stereo">立体标注图</button>
+                  <button class="stereo-mode-btn" data-mode="atommap">原子编号图</button>
+                </div>
+                <div class="stereo-img-container">
+                  <img class="molecule-img stereo-img" src="review_assets/9c0eb8a10a2a24fc-ff4abd31.svg" data-fallback-src="review_assets/9c0eb8a10a2a24fc-ff4abd31.png" alt="3a 普通结构图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/9c0eb8a10a2a24fc-8a6c2966.svg" data-fallback-src="review_assets/9c0eb8a10a2a24fc-8a6c2966.png" alt="3a 立体标注图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/9c0eb8a10a2a24fc-4055fa2d.svg" data-fallback-src="review_assets/9c0eb8a10a2a24fc-4055fa2d.png" alt="3a 原子编号图" decoding="async" loading="lazy">
+                  
+                </div>
+              </div>
+              <div class="stereo-tables">
+                
+                  
+                  <div style="font-size:var(--fs-sm);font-weight:600;margin-bottom:var(--sp-1)">立体中心</div>
+                  <table class="stereo-table" aria-label="立体中心"><thead><tr><th>原子</th><th>构型</th><th>指定</th></tr></thead><tbody>
+                    <tr><td class="mono">1</td><td>S</td><td>是</td></tr>
+                  </tbody></table>
+                  
+                  
+                  
+                
+              </div>
+            </div>
+          </div>
+          
+        
+          
+          <div class="stereo-entry" data-pid="rxn-002:reactant:2">
+            <div class="stereo-entry-title">3b</div>
+            <div class="stereo-entry-body">
+              <div class="stereo-img-area">
+                <div class="stereo-mode-btns" data-pid="rxn-002:reactant:2">
+                  <button class="stereo-mode-btn active" data-mode="normal">普通图</button>
+                  <button class="stereo-mode-btn" data-mode="stereo">立体标注图</button>
+                  <button class="stereo-mode-btn" data-mode="atommap">原子编号图</button>
+                </div>
+                <div class="stereo-img-container">
+                  <img class="molecule-img stereo-img" src="review_assets/cd75bb4862177bca-ff4abd31.svg" data-fallback-src="review_assets/cd75bb4862177bca-ff4abd31.png" alt="3b 普通结构图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/cd75bb4862177bca-8a6c2966.svg" data-fallback-src="review_assets/cd75bb4862177bca-8a6c2966.png" alt="3b 立体标注图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/cd75bb4862177bca-4055fa2d.svg" data-fallback-src="review_assets/cd75bb4862177bca-4055fa2d.png" alt="3b 原子编号图" decoding="async" loading="lazy">
+                  
+                </div>
+              </div>
+              <div class="stereo-tables">
+                
+                  <div class="stereo-no-centers">未检测到立体中心</div>
+                  
+                  <div style="font-size:var(--fs-sm);font-weight:600;margin-top:var(--sp-2);margin-bottom:var(--sp-1)">立体键</div>
+                  <table class="stereo-table" aria-label="立体键"><thead><tr><th>键</th><th>构型</th><th>指定</th></tr></thead><tbody>
+                    <tr class="stereo-unspecified"><td class="mono">1-2</td><td>?</td><td>否</td></tr>
+                  </tbody></table>
+                  
+                  
+                
+              </div>
+            </div>
+          </div>
+          
+        
+          
+          <div class="stereo-entry" data-pid="rxn-002:product:1">
+            <div class="stereo-entry-title">4a</div>
+            <div class="stereo-entry-body">
+              <div class="stereo-img-area">
+                <div class="stereo-mode-btns" data-pid="rxn-002:product:1">
+                  <button class="stereo-mode-btn active" data-mode="normal">普通图</button>
+                  <button class="stereo-mode-btn" data-mode="stereo">立体标注图</button>
+                  <button class="stereo-mode-btn" data-mode="atommap">原子编号图</button>
+                </div>
+                <div class="stereo-img-container">
+                  <img class="molecule-img stereo-img" src="review_assets/43a417ebd2df4f22-ff4abd31.svg" data-fallback-src="review_assets/43a417ebd2df4f22-ff4abd31.png" alt="4a 普通结构图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/43a417ebd2df4f22-8a6c2966.svg" data-fallback-src="review_assets/43a417ebd2df4f22-8a6c2966.png" alt="4a 立体标注图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/43a417ebd2df4f22-4055fa2d.svg" data-fallback-src="review_assets/43a417ebd2df4f22-4055fa2d.png" alt="4a 原子编号图" decoding="async" loading="lazy">
+                  
+                </div>
+              </div>
+              <div class="stereo-tables">
+                
+                  
+                  <div style="font-size:var(--fs-sm);font-weight:600;margin-bottom:var(--sp-1)">立体中心</div>
+                  <table class="stereo-table" aria-label="立体中心"><thead><tr><th>原子</th><th>构型</th><th>指定</th></tr></thead><tbody>
+                    <tr><td class="mono">4</td><td>R</td><td>是</td></tr>
+                  </tbody></table>
+                  
+                  
+                  <div style="font-size:var(--fs-sm);font-weight:600;margin-top:var(--sp-2);margin-bottom:var(--sp-1)">立体键</div>
+                  <table class="stereo-table" aria-label="立体键"><thead><tr><th>键</th><th>构型</th><th>指定</th></tr></thead><tbody>
+                    <tr class="stereo-unspecified"><td class="mono">1-2</td><td>?</td><td>否</td></tr>
+                  </tbody></table>
+                  
+                  
+                
+              </div>
+            </div>
+          </div>
+          
+        
+          
+        
+          
+        
+      </div>
+
+      <!-- Tab: 金标比对 -->
+      <div class="tab-panel" data-tab="gold" role="tabpanel">
+        
+          
+          <div class="gold-alignment"><strong>对齐方式:</strong> mapped &mdash; reaction_key match | <strong>金标ID:</strong> <span class="mono">gold-002</span></div>
+          
+          
+          <div class="gold-pair" data-pid="4a">
+            <div class="gold-pair-figures">
+              <figure class="gold-figure">
+                <figcaption>提取结构: 4a</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/43a417ebd2df4f22-ce1751ac.svg" data-fallback-src="review_assets/43a417ebd2df4f22-ce1751ac.png" alt="提取结构" decoding="async" loading="lazy">
+                  <img class="molecule-img gold-diff-img" src="review_assets/43a417ebd2df4f22-ce1751ac-hl46b18841.svg" data-fallback-src="review_assets/43a417ebd2df4f22-ce1751ac-hl46b18841.png" alt="提取结构 差异高亮" decoding="async" loading="lazy">
+                
+              </figure>
+              <figure class="gold-figure">
+                <figcaption>金标结构: 4a</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/485a82c405d5657b-ce1751ac.svg" data-fallback-src="review_assets/485a82c405d5657b-ce1751ac.png" alt="金标结构" decoding="async" loading="lazy">
+                  <img class="molecule-img gold-diff-img" src="review_assets/485a82c405d5657b-ce1751ac-hl46b18841.svg" data-fallback-src="review_assets/485a82c405d5657b-ce1751ac-hl46b18841.png" alt="金标结构 差异高亮" decoding="async" loading="lazy">
+                
+              </figure>
+            </div>
+            <div class="gold-pair-meta">
+              <span class="gold-pair-label">仅立体化学不同</span>
+              
+              <button class="gold-diff-toggle" data-pid="4a">差异高亮</button>
+            </div>
+          </div>
+          
+          <div class="gold-pair" data-pid="3a">
+            <div class="gold-pair-figures">
+              <figure class="gold-figure">
+                <figcaption>提取结构: 3a</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/9c0eb8a10a2a24fc-ce1751ac.svg" data-fallback-src="review_assets/9c0eb8a10a2a24fc-ce1751ac.png" alt="提取结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+              <figure class="gold-figure">
+                <figcaption>金标结构: 3a</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/9c0eb8a10a2a24fc-ce1751ac.svg" data-fallback-src="review_assets/9c0eb8a10a2a24fc-ce1751ac.png" alt="金标结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+            </div>
+            <div class="gold-pair-meta">
+              <span class="gold-pair-label">一致</span>
+              
+              
+            </div>
+          </div>
+          
+          <div class="gold-pair" data-pid="3b">
+            <div class="gold-pair-figures">
+              <figure class="gold-figure">
+                <figcaption>提取结构: 3b</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/cd75bb4862177bca-ce1751ac.svg" data-fallback-src="review_assets/cd75bb4862177bca-ce1751ac.png" alt="提取结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+              <figure class="gold-figure">
+                <figcaption>金标结构: 3b</figcaption>
+                
+                  <img class="molecule-img " src="review_assets/cd75bb4862177bca-ce1751ac.svg" data-fallback-src="review_assets/cd75bb4862177bca-ce1751ac.png" alt="金标结构" decoding="async" loading="lazy">
+                  
+                
+              </figure>
+            </div>
+            <div class="gold-pair-meta">
+              <span class="gold-pair-label">一致</span>
+              
+              
+            </div>
+          </div>
+          
+        
+      </div>
+
+      <!-- Tab: 条件 -->
+      <div class="tab-panel" data-tab="conditions" role="tabpanel">
+        
+        <div style="overflow-x:auto">
+        <table class="cond-table" aria-label="反应条件表">
+          <colgroup><col class="col-field"><col class="col-value"><col class="col-orig"><col class="col-source"><col class="col-diff"><col class="col-conclusion"></colgroup>
+          <thead><tr><th>字段</th><th>提取值</th><th>文献原值/单位</th><th>来源</th><th>差异/问题</th><th>审核结论</th></tr></thead>
+          <tbody>
+          
+          <tr data-cid="rxn-002:cond:temperature" data-evidence-ids="e2">
+            <td class="mono" style="font-weight:600">temperature</td>
+            <td>0</td>
+            <td>0 <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">°C</span></td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-002:cond:temperature" data-field-path="temperature_c" data-old-value="0">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 temperature">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订条件 temperature">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 temperature">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-002:cond:time" data-evidence-ids="e2">
+            <td class="mono" style="font-weight:600">time</td>
+            <td>2 h</td>
+            <td>2 h</td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-002:cond:time" data-field-path="time" data-old-value="2 h">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 time">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订条件 time">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 time">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-002:cond:yield" data-evidence-ids="e2">
+            <td class="mono" style="font-weight:600">yield</td>
+            <td>75</td>
+            <td>75 <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">%</span></td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-002:cond:yield" data-field-path="yield_pct" data-old-value="75">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 yield">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订条件 yield">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 yield">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-002:cond:reagent" data-evidence-ids="e2">
+            <td class="mono" style="font-weight:600">reagent</td>
+            <td>Et3N</td>
+            <td>Et3N</td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-002:cond:reagent" data-field-path="" data-old-value="Et3N">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 reagent">确认</button>
+                <button class="act-btn" data-op="revise" disabled title="该目标不支持在线修订" aria-label="修订条件 reagent">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 reagent">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-002:cond:solvent" data-evidence-ids="e2">
+            <td class="mono" style="font-weight:600">solvent</td>
+            <td>CH2Cl2</td>
+            <td>CH2Cl2</td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-002:cond:solvent" data-field-path="" data-old-value="CH2Cl2">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 solvent">确认</button>
+                <button class="act-btn" data-op="revise" disabled title="该目标不支持在线修订" aria-label="修订条件 solvent">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 solvent">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          </tbody>
+        </table>
+        </div>
+        
+        <div class="section" style="margin-top:var(--sp-4)">
+          <div class="section-title">反应概况</div>
+          <div style="overflow-x:auto"><table class="cond-table" aria-label="反应概况表"><tbody>
+            <tr><td style="font-weight:600;width:25%">底物</td><td>3a, 3b</td></tr>
+            <tr><td style="font-weight:600">产物</td><td>4a</td></tr>
+            <tr><td style="font-weight:600">试剂</td><td>Et3N</td></tr>
+            <tr><td style="font-weight:600">溶剂</td><td>CH2Cl2</td></tr>
+            <tr><td style="font-weight:600">温度</td><td>— °C</td></tr>
+            <tr><td style="font-weight:600">时间</td><td>2 h</td></tr>
+            <tr><td style="font-weight:600">产率</td><td>75.0%</td></tr>
+          </tbody></table></div>
+        </div>
+      </div>
+
+      <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--c-border-light)">
+        <div class="target-actions" data-target-kind="reaction" data-target-id="rxn-002">
+          <button class="act-btn" data-op="confirm" aria-label="确认反应">确认反应</button>
+          <button class="act-btn" data-op="mark_pending" aria-label="待定反应">待定</button>
+          <button class="act-btn" data-op="reject" aria-label="拒绝反应">拒绝</button>
+          <input class="reason-input" type="text" placeholder="理由（待定/拒绝必填）" aria-label="审核理由">
+        </div>
+      </div>
+
+      
+
+    </div>
+    
+    
+    <div class="reaction-detail" data-idx="2" style="display:none">
+
+      <div class="rxn-header">
+        <h2>rxn-003</h2>
+        <div class="rxn-badges">
+          <span class="badge badge-unreviewed" title="unreviewed">未审核</span>
+          <span class="badge badge-clean" title="clean">机器校验通过</span>
+        </div>
+        <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">位置 #3</span>
+      </div>
+
+      
+
+      <!-- Reaction overview hero -->
+      <div class="rxn-hero">
+        <div class="rxn-hero-canvas" id="hero-canvas-2">
+          
+          
+            
+          
+            
+          
+            
+              
+            
+          
+            
+              
+            
+          
+
+          
+          
+            
+            <figure class="rxn-hero-figure">
+              
+                <div class="molecule-placeholder">结构未解析</div>
+              
+              <figcaption>5a</figcaption>
+            </figure>
+          
+
+          <div class="rxn-hero-arrow">
+            <span class="rxn-hero-arrow-symbol" aria-hidden="true">——→</span>
+            
+            <div class="rxn-hero-summary">NaBH4 · MeOH</div>
+            
+            
+            <div class="rxn-hero-solvents">
+              <span class="rxn-hero-chip">MeOH</span>
+            </div>
+            
+            
+            <div class="rxn-hero-additives">
+              
+                
+                <span class="rxn-hero-chip">NaBH4</span>
+                
+              
+            </div>
+            
+          </div>
+
+          
+          
+            <figure class="rxn-hero-figure">
+              
+                <img class="molecule-img " src="review_assets/3f5d5a797945beb3-ff4abd31.svg" data-fallback-src="review_assets/3f5d5a797945beb3-ff4abd31.png" alt="6a 结构图" decoding="async" loading="lazy">
+              
+              <figcaption>6a</figcaption>
+            </figure>
+            
+          
+        </div>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="tab-bar" role="tablist">
+        <button class="tab-btn active" data-tab="participants" role="tab" aria-selected="true">参与物结构</button>
+        <button class="tab-btn" data-tab="stereo" role="tab" aria-selected="false">立体化学</button>
+        <button class="tab-btn" data-tab="gold" role="tab" aria-selected="false">金标比对</button>
+        <button class="tab-btn" data-tab="conditions" role="tab" aria-selected="false">条件</button>
+      </div>
+
+      <!-- Tab: 参与物结构 -->
+      <div class="tab-panel active" data-tab="participants" role="tabpanel">
+        
+        <div class="participant-grid">
+          
+          <div class="participant-card" data-pid="rxn-003:reactant:1" data-evidence-ids="e3">
+            <div class="pcard-img-wrap">
+              
+                <div class="molecule-placeholder">结构未解析</div>
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    5a
+                    <span class="badge badge-needs_review" style="font-size:var(--fs-xs)">结构未解析</span>
+                  </div>
+                  <div class="pcard-name">unresolved substrate</div>
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-unresolved" title="结构状态: unresolved">未解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-003:reactant:1</span>
+                  <span title="角色">reactant</span>
+                  <span class="mono" title="字段路径">reactants.0.smiles</span>
+                </div>
+                
+                <ul class="issues-list" aria-label="机器校验问题" style="margin-top:var(--sp-1)">
+                  <li class="issue-warning"><span class="mono" style="font-weight:600">R001_REACTANT_MISSING</span> <span>Reactant structure unresolved</span></li>
+                </ul>
+                
+                
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-003:reactant:1" data-field-path="reactants.0.smiles" data-old-value="">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 5a">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 5a">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 5a">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 5a">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-003:product:1" data-evidence-ids="e3">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/3f5d5a797945beb3-ff4abd31.svg" data-fallback-src="review_assets/3f5d5a797945beb3-ff4abd31.png" alt="6a 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    6a
+                    
+                  </div>
+                  <div class="pcard-name">benzyl alcohol</div>
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-003:product:1">OCc1ccccc1</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-003:product:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-003:product:1</span>
+                  <span title="角色">product</span>
+                  <span class="mono" title="字段路径">products.0.smiles</span>
+                </div>
+                
+                
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-003:product:1" data-field-path="products.0.smiles" data-old-value="OCc1ccccc1">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 6a">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 6a">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 6a">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 6a">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-003:reagent:1" data-evidence-ids="e3">
+            <div class="pcard-img-wrap">
+              
+                <div class="molecule-placeholder">结构未解析</div>
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    NaBH4
+                    <span class="badge badge-needs_review" style="font-size:var(--fs-xs)">结构未解析</span>
+                  </div>
+                  
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-not_attempted" title="结构状态: not_attempted">未尝试</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-003:reagent:1</span>
+                  <span title="角色">reagent</span>
+                  <span class="mono" title="字段路径">reagents.0</span>
+                </div>
+                
+                <div class="field-ev-hint" aria-label="仅反应级参考">reaction-level reference only</div>
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-003:reagent:1" data-field-path="reagents.0" data-old-value="">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 NaBH4">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 NaBH4">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 NaBH4">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 NaBH4">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+          <div class="participant-card" data-pid="rxn-003:solvent:1" data-evidence-ids="e3">
+            <div class="pcard-img-wrap">
+              
+                <img class="molecule-img " src="review_assets/fc8842c641d91506-ff4abd31.svg" data-fallback-src="review_assets/fc8842c641d91506-ff4abd31.png" alt="MeOH 结构图" decoding="async" loading="lazy">
+              
+            </div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    MeOH
+                    
+                  </div>
+                  
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-resolved" title="结构状态: resolved">已解析</span>
+                  
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                
+                <div class="smiles-row">
+                  <code id="smiles-rxn-003:solvent:1">CO</code>
+                  <button class="smiles-copy" onclick="copySmiles('rxn-003:solvent:1')" aria-label="复制SMILES">复制</button>
+                </div>
+                
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">rxn-003:solvent:1</span>
+                  <span title="角色">solvent</span>
+                  <span class="mono" title="字段路径">solvents.0</span>
+                </div>
+                
+                <div class="field-ev-hint" aria-label="仅反应级参考">reaction-level reference only</div>
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="rxn-003:solvent:1" data-field-path="solvents.0" data-old-value="CO">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 MeOH">确认</button>
+                <button class="act-btn" data-op="revise"  aria-label="修订参与物 MeOH">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 MeOH">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 MeOH">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
+            </div>
+          </div>
+          
+        </div>
+        
+      </div>
+
+      <!-- Tab: 立体化学 -->
+      <div class="tab-panel" data-tab="stereo" role="tabpanel">
+        
+          
+          <div class="stereo-entry" data-pid="rxn-003:reactant:1">
+            <div class="stereo-entry-title">5a</div>
+            <div class="stereo-entry-body">
+              <div class="stereo-img-area">
+                <div class="stereo-mode-btns" data-pid="rxn-003:reactant:1">
+                  <button class="stereo-mode-btn active" data-mode="normal">普通图</button>
+                  
+                  
+                </div>
+                <div class="stereo-img-container">
+                  
+                  
+                  
+                  
+                </div>
+              </div>
+              <div class="stereo-tables">
+                
+                <div class="stereo-na">no SMILES provided</div>
+                
+              </div>
+            </div>
+          </div>
+          
+        
+          
+          <div class="stereo-entry" data-pid="rxn-003:product:1">
+            <div class="stereo-entry-title">6a</div>
+            <div class="stereo-entry-body">
+              <div class="stereo-img-area">
+                <div class="stereo-mode-btns" data-pid="rxn-003:product:1">
+                  <button class="stereo-mode-btn active" data-mode="normal">普通图</button>
+                  <button class="stereo-mode-btn" data-mode="stereo">立体标注图</button>
+                  <button class="stereo-mode-btn" data-mode="atommap">原子编号图</button>
+                </div>
+                <div class="stereo-img-container">
+                  <img class="molecule-img stereo-img" src="review_assets/3f5d5a797945beb3-ff4abd31.svg" data-fallback-src="review_assets/3f5d5a797945beb3-ff4abd31.png" alt="6a 普通结构图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/3f5d5a797945beb3-8a6c2966.svg" data-fallback-src="review_assets/3f5d5a797945beb3-8a6c2966.png" alt="6a 立体标注图" decoding="async" loading="lazy">
+                  <img class="molecule-img stereo-img stereo-diff-img" src="review_assets/3f5d5a797945beb3-4055fa2d.svg" data-fallback-src="review_assets/3f5d5a797945beb3-4055fa2d.png" alt="6a 原子编号图" decoding="async" loading="lazy">
+                  
+                </div>
+              </div>
+              <div class="stereo-tables">
+                
+                  <div class="stereo-no-centers">未检测到立体中心</div>
+                  
+                  
+                
+              </div>
+            </div>
+          </div>
+          
+        
+          
+        
+          
+        
+      </div>
+
+      <!-- Tab: 金标比对 -->
+      <div class="tab-panel" data-tab="gold" role="tabpanel">
+        
+          <div class="gold-section">
+            <div class="gold-title">对齐结果</div>
+            <p><strong>对齐方式:</strong> unmatched_extracted &mdash; no gold match</p>
+            
+            
+          </div>
+        
+      </div>
+
+      <!-- Tab: 条件 -->
+      <div class="tab-panel" data-tab="conditions" role="tabpanel">
+        
+        <div style="overflow-x:auto">
+        <table class="cond-table" aria-label="反应条件表">
+          <colgroup><col class="col-field"><col class="col-value"><col class="col-orig"><col class="col-source"><col class="col-diff"><col class="col-conclusion"></colgroup>
+          <thead><tr><th>字段</th><th>提取值</th><th>文献原值/单位</th><th>来源</th><th>差异/问题</th><th>审核结论</th></tr></thead>
+          <tbody>
+          
+          <tr data-cid="rxn-003:cond:reagent" data-evidence-ids="e3">
+            <td class="mono" style="font-weight:600">reagent</td>
+            <td>NaBH4</td>
+            <td>NaBH4</td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-003:cond:reagent" data-field-path="" data-old-value="NaBH4">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 reagent">确认</button>
+                <button class="act-btn" data-op="revise" disabled title="该目标不支持在线修订" aria-label="修订条件 reagent">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 reagent">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          <tr data-cid="rxn-003:cond:solvent" data-evidence-ids="e3">
+            <td class="mono" style="font-weight:600">solvent</td>
+            <td>MeOH</td>
+            <td>MeOH</td>
+            <td><span class="evidence-tag">field evidence</span></td>
+            <td>extracted</td>
+            <td>
+              <div class="target-actions" data-target-kind="condition" data-target-id="rxn-003:cond:solvent" data-field-path="" data-old-value="MeOH">
+                <button class="act-btn" data-op="confirm" aria-label="确认条件 solvent">确认</button>
+                <button class="act-btn" data-op="revise" disabled title="该目标不支持在线修订" aria-label="修订条件 solvent">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定条件 solvent">待定</button>
+                <input class="reason-input" type="text" placeholder="理由" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新值" style="display:none" aria-label="修订值">
+              </div>
+            </td>
+          </tr>
+          
+          </tbody>
+        </table>
+        </div>
+        
+        <div class="section" style="margin-top:var(--sp-4)">
+          <div class="section-title">反应概况</div>
+          <div style="overflow-x:auto"><table class="cond-table" aria-label="反应概况表"><tbody>
+            <tr><td style="font-weight:600;width:25%">底物</td><td>5a</td></tr>
+            <tr><td style="font-weight:600">产物</td><td>6a</td></tr>
+            <tr><td style="font-weight:600">试剂</td><td>NaBH4</td></tr>
+            <tr><td style="font-weight:600">溶剂</td><td>MeOH</td></tr>
+            <tr><td style="font-weight:600">温度</td><td>—</td></tr>
+            <tr><td style="font-weight:600">时间</td><td>—</td></tr>
+            <tr><td style="font-weight:600">产率</td><td>—</td></tr>
+          </tbody></table></div>
+        </div>
+      </div>
+
+      <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--c-border-light)">
+        <div class="target-actions" data-target-kind="reaction" data-target-id="rxn-003">
+          <button class="act-btn" data-op="confirm" aria-label="确认反应">确认反应</button>
+          <button class="act-btn" data-op="mark_pending" aria-label="待定反应">待定</button>
+          <button class="act-btn" data-op="reject" aria-label="拒绝反应">拒绝</button>
+          <input class="reason-input" type="text" placeholder="理由（待定/拒绝必填）" aria-label="审核理由">
+        </div>
+      </div>
+
+      
+      <div class="section" style="margin-top:var(--sp-3)">
+        <div class="section-title">机器校验问题 <span class="st-count">1</span></div>
+        <ul class="issues-list" aria-label="反应级机器校验问题">
+          <li class="issue-warning"><span class="mono" style="font-weight:600">R001_REACTANT_MISSING</span> <span>Reactant structure unresolved</span></li>
+        </ul>
+      </div>
+      
+
+    </div>
+    
+    
+  </div>
+
+  <!-- EVIDENCE DRAWER -->
+  <div class="evidence-pane" id="evidence-pane" role="complementary" aria-label="证据查看器">
+    <div class="ev-header">证据查看器 <span class="ev-count" id="ev-count"></span></div>
+    <div class="ev-list" id="ev-list">
+      
+      
+      <div class="ev-item" data-eid="e1" role="button" tabindex="0" aria-label="证据 e1">
+        <div class="ev-meta"><span class="ev-kind">text</span> <span class="ev-page">p.3</span> <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">e1</span></div>
+        <div class="ev-text">A mixture of 1a (1.0 mmol), 1b (1.2 mmol), Pd(PPh3)4 (5 mol%) and K2CO3 (2.0 equiv) in THF/H2O was stirred at 65 °C for 12 h to give 2a in 82% yield.</div>
+        
+      </div>
+      
+      <div class="ev-item" data-eid="e2" role="button" tabindex="0" aria-label="证据 e2">
+        <div class="ev-meta"><span class="ev-kind">image</span> <span class="ev-page">p.5</span> <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">e2</span></div>
+        <div class="ev-text">Scheme 2: acetylation of (S)-butan-2-ol.</div>
+        <div class="ev-asset"><span style="font-size:var(--fs-xs);color:var(--c-text-muted)">evidence_assets/scheme2.png</span> <img src="evidence_assets/scheme2.png" alt="证据图片 e2" loading="lazy"></div>
+      </div>
+      
+      <div class="ev-item" data-eid="e3" role="button" tabindex="0" aria-label="证据 e3">
+        <div class="ev-meta"><span class="ev-kind">text</span> <span class="ev-page">p.7</span> <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">e3</span></div>
+        <div class="ev-text">The substrate 5a was reduced with NaBH4 in MeOH to afford 6a.</div>
+        
+      </div>
+      
+      
+      
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer" role="contentinfo">
+    <div class="footer-nav">
+      <button class="footer-btn" id="btn-prev" aria-label="上一反应" disabled>&larr; 上一反应</button>
+      <button class="footer-btn" id="btn-next-unreviewed" aria-label="下一待审项">下一待审项 &rarr;</button>
+    </div>
+    <div class="pending-summary">当前修订摘要: <span class="pending-count" id="pending-count">0</span> 项待处理</div>
+    <div class="authoritative-note">导出审核包为权威数据；本地存储仅供参考</div>
+    <div class="footer-spacer"></div>
+    <div style="display:flex;align-items:center;gap:var(--sp-2)">
+      <input type="text" id="reviewer-input" placeholder="审核人姓名" required aria-label="审核人姓名" style="padding:3px 8px;border:1px solid var(--c-border);border-radius:var(--radius-sm);font-size:var(--fs-xs);width:120px">
+      <button class="footer-btn primary" id="btn-confirm-reaction" aria-label="确认本反应">确认本反应</button>
+      <button class="footer-btn export" id="btn-export" aria-label="导出审核包">导出审核包</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lightbox-overlay" id="lightbox-overlay" aria-hidden="true">
+  <div class="lightbox-backdrop"></div>
+  <img class="lightbox-img" src="" alt="">
+  <button class="lightbox-close" aria-label="关闭">&times;</button>
+</div>
+
+<input type="file" id="import-file" accept=".json" style="display:none" aria-hidden="true">
+<!-- DATA PAYLOAD -->
+<script id="chemex-review-data" type="application/json">{"evidence": [{"asset_path": null, "evidence_id": "e1", "kind": "text", "page": 3, "text": "A mixture of 1a (1.0 mmol), 1b (1.2 mmol), Pd(PPh3)4 (5 mol%) and K2CO3 (2.0 equiv) in THF/H2O was stirred at 65 \u00b0C for 12 h to give 2a in 82% yield."}, {"asset_path": "evidence_assets/scheme2.png", "evidence_id": "e2", "kind": "image", "page": 5, "text": "Scheme 2: acetylation of (S)-butan-2-ol."}, {"asset_path": null, "evidence_id": "e3", "kind": "text", "page": 7, "text": "The substrate 5a was reduced with NaBH4 in MeOH to afford 6a."}], "evidence_missing": [], "has_contexts": true, "has_gold": true, "reactions": [{"condition_summary": "Pd(PPh3)4 \u00b7 K2CO3 \u00b7 THF \u00b7 H2O \u00b7 65 \u00b0C \u00b7 12 h \u00b7 \u6536\u7387 82%", "conditions": [{"condition_id": "rxn-001:cond:temperature", "evidence_ids": ["e1"], "extraction_state": "extracted", "field_evidence_ids": ["e1"], "field_path": "temperature_c", "has_field_evidence": true, "kind": "temperature", "numeric_value": 65.0, "stage_index": null, "unit": "\u00b0C", "value": "65"}, {"condition_id": "rxn-001:cond:time", "evidence_ids": ["e1"], "extraction_state": "extracted", "field_evidence_ids": ["e1"], "field_path": "time", "has_field_evidence": true, "kind": "time", "numeric_value": null, "stage_index": null, "unit": "", "value": "12 h"}, {"condition_id": "rxn-001:cond:yield", "evidence_ids": ["e1"], "extraction_state": "extracted", "field_evidence_ids": ["e1"], "field_path": "yield_pct", "has_field_evidence": true, "kind": "yield", "numeric_value": 82.0, "stage_index": null, "unit": "%", "value": "82"}, {"condition_id": "rxn-001:cond:reagent", "evidence_ids": ["e1"], "extraction_state": "extracted", "field_evidence_ids": ["e1"], "field_path": null, "has_field_evidence": true, "kind": "reagent", "numeric_value": null, "stage_index": null, "unit": "", "value": "Pd(PPh3)4"}, {"condition_id": "rxn-001:cond:reagent", "evidence_ids": ["e1"], "extraction_state": "extracted", "field_evidence_ids": ["e1"], "field_path": null, "has_field_evidence": true, "kind": "reagent", "numeric_value": null, "stage_index": null, "unit": "", "value": "K2CO3"}, {"condition_id": "rxn-001:cond:solvent", "evidence_ids": ["e1"], "extraction_state": "extracted", "field_evidence_ids": ["e1"], "field_path": null, "has_field_evidence": true, "kind": "solvent", "numeric_value": null, "stage_index": null, "unit": "", "value": "THF/H2O"}], "confidence": 0.91, "context_note": null, "evidence_ids": ["e1"], "gold": {"alignment": "mapped", "alignment_basis": "reaction_key match", "gold_reaction_id": "gold-001", "has_gold": true, "participant_results": [{"comparison": "identical", "gold_participant_id": "2a", "incomparable_reason": null, "participant_id": "2a"}, {"comparison": "identical", "gold_participant_id": "1a", "incomparable_reason": null, "participant_id": "1a"}, {"comparison": "identical", "gold_participant_id": "1b", "incomparable_reason": null, "participant_id": "1b"}], "reaction_id": "rxn-001"}, "gold_pairs": [{"comparison": "identical", "extracted": {"images": {"diff": null, "normal": {"png": "review_assets/27dacb226b18e24b-ce1751ac.png", "svg": "review_assets/27dacb226b18e24b-ce1751ac.svg"}}, "label": "2a", "render_status": "ok", "smiles": "c1ccc(-c2ccccc2)cc1"}, "gold": {"images": {"diff": null, "normal": {"png": "review_assets/27dacb226b18e24b-ce1751ac.png", "svg": "review_assets/27dacb226b18e24b-ce1751ac.svg"}}, "label": "2a", "render_status": "ok", "smiles": "c1ccc(-c2ccccc2)cc1"}, "gold_participant_id": "2a", "highlight": false, "incomparable_reason": null, "participant_id": "2a"}, {"comparison": "identical", "extracted": {"images": {"diff": null, "normal": {"png": "review_assets/e16cf00bdc42a076-ce1751ac.png", "svg": "review_assets/e16cf00bdc42a076-ce1751ac.svg"}}, "label": "1a", "render_status": "ok", "smiles": "Brc1ccccc1"}, "gold": {"images": {"diff": null, "normal": {"png": "review_assets/e16cf00bdc42a076-ce1751ac.png", "svg": "review_assets/e16cf00bdc42a076-ce1751ac.svg"}}, "label": "1a", "render_status": "ok", "smiles": "Brc1ccccc1"}, "gold_participant_id": "1a", "highlight": false, "incomparable_reason": null, "participant_id": "1a"}, {"comparison": "identical", "extracted": {"images": {"diff": null, "normal": {"png": "review_assets/8688c09a3a54367b-ce1751ac.png", "svg": "review_assets/8688c09a3a54367b-ce1751ac.svg"}}, "label": "1b", "render_status": "ok", "smiles": "OB(O)c1ccccc1"}, "gold": {"images": {"diff": null, "normal": {"png": "review_assets/8688c09a3a54367b-ce1751ac.png", "svg": "review_assets/8688c09a3a54367b-ce1751ac.svg"}}, "label": "1b", "render_status": "ok", "smiles": "OB(O)c1ccccc1"}, "gold_participant_id": "1b", "highlight": false, "incomparable_reason": null, "participant_id": "1b"}], "human_status": "unreviewed", "issues": [], "machine_status": "clean", "participants": [{"evidence_ids": ["e1"], "field_evidence_ids": ["e1"], "field_path": "reactants.0.smiles", "has_field_evidence": true, "images": {"atommap": {"png": "review_assets/e16cf00bdc42a076-4055fa2d.png", "svg": "review_assets/e16cf00bdc42a076-4055fa2d.svg"}, "normal": {"png": "review_assets/e16cf00bdc42a076-ff4abd31.png", "svg": "review_assets/e16cf00bdc42a076-ff4abd31.svg"}, "stereo": {"png": "review_assets/e16cf00bdc42a076-8a6c2966.png", "svg": "review_assets/e16cf00bdc42a076-8a6c2966.svg"}}, "label": "1a", "machine_issues": [], "name": "bromobenzene", "participant_id": "rxn-001:reactant:1", "render_status": "ok", "role": "reactant", "smiles": "Brc1ccccc1", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e1"], "field_evidence_ids": ["e1"], "field_path": "reactants.1.smiles", "has_field_evidence": true, "images": {"atommap": {"png": "review_assets/8688c09a3a54367b-4055fa2d.png", "svg": "review_assets/8688c09a3a54367b-4055fa2d.svg"}, "normal": {"png": "review_assets/8688c09a3a54367b-ff4abd31.png", "svg": "review_assets/8688c09a3a54367b-ff4abd31.svg"}, "stereo": {"png": "review_assets/8688c09a3a54367b-8a6c2966.png", "svg": "review_assets/8688c09a3a54367b-8a6c2966.svg"}}, "label": "1b", "machine_issues": [], "name": "phenylboronic acid", "participant_id": "rxn-001:reactant:2", "render_status": "ok", "role": "reactant", "smiles": "OB(O)c1ccccc1", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e1"], "field_evidence_ids": ["e1"], "field_path": "products.0.smiles", "has_field_evidence": true, "images": {"atommap": {"png": "review_assets/27dacb226b18e24b-4055fa2d.png", "svg": "review_assets/27dacb226b18e24b-4055fa2d.svg"}, "normal": {"png": "review_assets/27dacb226b18e24b-ff4abd31.png", "svg": "review_assets/27dacb226b18e24b-ff4abd31.svg"}, "stereo": {"png": "review_assets/27dacb226b18e24b-8a6c2966.png", "svg": "review_assets/27dacb226b18e24b-8a6c2966.svg"}}, "label": "2a", "machine_issues": [], "name": "biphenyl", "participant_id": "rxn-001:product:1", "render_status": "ok", "role": "product", "smiles": "c1ccc(-c2ccccc2)cc1", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e1"], "field_evidence_ids": ["e1"], "field_path": null, "has_field_evidence": true, "images": {"normal": {"png": "review_assets/a5248280f154ef94-ff4abd31.png", "svg": "review_assets/a5248280f154ef94-ff4abd31.svg"}}, "label": "", "machine_issues": [], "name": "Pd(PPh3)4", "participant_id": "rxn-001:catalyst:1", "render_status": "ok", "role": "catalyst", "smiles": "[Pd](P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e1"], "field_evidence_ids": [], "field_path": "reagents.1", "has_field_evidence": false, "images": {"atommap": null, "normal": {"png": null, "svg": null}, "stereo": null}, "label": "", "machine_issues": [], "name": "K2CO3", "participant_id": "rxn-001:reagent:2", "render_status": "missing_smiles", "role": "reagent", "smiles": "", "stale_image": false, "stereo": {"analysis_note": "no SMILES provided", "bonds": [], "centers": [], "rdkit_available": false}, "structure_state": "unresolved"}, {"evidence_ids": ["e1"], "field_evidence_ids": [], "field_path": "solvents.0", "has_field_evidence": false, "images": {"normal": {"png": "review_assets/92623ccd36bc322b-ff4abd31.png", "svg": "review_assets/92623ccd36bc322b-ff4abd31.svg"}}, "label": "", "machine_issues": [], "name": "THF", "participant_id": "rxn-001:solvent:1", "render_status": "ok", "role": "solvent", "smiles": "C1CCOC1", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e1"], "field_evidence_ids": [], "field_path": "solvents.1", "has_field_evidence": false, "images": {"normal": {"png": "review_assets/c4694f2e93d5c4e7-ff4abd31.png", "svg": "review_assets/c4694f2e93d5c4e7-ff4abd31.svg"}}, "label": "", "machine_issues": [], "name": "H2O", "participant_id": "rxn-001:solvent:2", "render_status": "ok", "role": "solvent", "smiles": "O", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}], "position": 0, "products_text": "2a", "reactants_text": "1a, 1b", "reaction_id": "rxn-001", "reagents": ["Pd(PPh3)4", "K2CO3"], "record_hash": "e1713af488464c90ba48649cc85ac067b39d7c3b25aafb32e68d32ae830846f7", "review_status": "needs_review", "solvents": ["THF", "H2O"], "temperature_c": 65.0, "time": "12 h", "yield_pct": 82.0}, {"condition_summary": "Et3N \u00b7 CH2Cl2 \u00b7 0 \u00b0C \u00b7 2 h \u00b7 \u6536\u7387 75%", "conditions": [{"condition_id": "rxn-002:cond:temperature", "evidence_ids": ["e2"], "extraction_state": "extracted", "field_evidence_ids": ["e2"], "field_path": "temperature_c", "has_field_evidence": true, "kind": "temperature", "numeric_value": 0.0, "stage_index": null, "unit": "\u00b0C", "value": "0"}, {"condition_id": "rxn-002:cond:time", "evidence_ids": ["e2"], "extraction_state": "extracted", "field_evidence_ids": ["e2"], "field_path": "time", "has_field_evidence": true, "kind": "time", "numeric_value": null, "stage_index": null, "unit": "", "value": "2 h"}, {"condition_id": "rxn-002:cond:yield", "evidence_ids": ["e2"], "extraction_state": "extracted", "field_evidence_ids": ["e2"], "field_path": "yield_pct", "has_field_evidence": true, "kind": "yield", "numeric_value": 75.0, "stage_index": null, "unit": "%", "value": "75"}, {"condition_id": "rxn-002:cond:reagent", "evidence_ids": ["e2"], "extraction_state": "extracted", "field_evidence_ids": ["e2"], "field_path": null, "has_field_evidence": true, "kind": "reagent", "numeric_value": null, "stage_index": null, "unit": "", "value": "Et3N"}, {"condition_id": "rxn-002:cond:solvent", "evidence_ids": ["e2"], "extraction_state": "extracted", "field_evidence_ids": ["e2"], "field_path": null, "has_field_evidence": true, "kind": "solvent", "numeric_value": null, "stage_index": null, "unit": "", "value": "CH2Cl2"}], "confidence": 0.84, "context_note": null, "evidence_ids": ["e2"], "gold": {"alignment": "mapped", "alignment_basis": "reaction_key match", "gold_reaction_id": "gold-002", "has_gold": true, "participant_results": [{"comparison": "stereo_only", "gold_participant_id": "4a", "incomparable_reason": null, "participant_id": "4a"}, {"comparison": "identical", "gold_participant_id": "3a", "incomparable_reason": null, "participant_id": "3a"}, {"comparison": "identical", "gold_participant_id": "3b", "incomparable_reason": null, "participant_id": "3b"}], "reaction_id": "rxn-002"}, "gold_pairs": [{"comparison": "stereo_only", "extracted": {"images": {"diff": {"png": "review_assets/43a417ebd2df4f22-ce1751ac-hl46b18841.png", "svg": "review_assets/43a417ebd2df4f22-ce1751ac-hl46b18841.svg"}, "normal": {"png": "review_assets/43a417ebd2df4f22-ce1751ac.png", "svg": "review_assets/43a417ebd2df4f22-ce1751ac.svg"}}, "label": "4a", "render_status": "ok", "smiles": "CC(=O)O[C@H](C)CC"}, "gold": {"images": {"diff": {"png": "review_assets/485a82c405d5657b-ce1751ac-hl46b18841.png", "svg": "review_assets/485a82c405d5657b-ce1751ac-hl46b18841.svg"}, "normal": {"png": "review_assets/485a82c405d5657b-ce1751ac.png", "svg": "review_assets/485a82c405d5657b-ce1751ac.svg"}}, "label": "4a", "render_status": "ok", "smiles": "CC(=O)O[C@@H](C)CC"}, "gold_participant_id": "4a", "highlight": true, "incomparable_reason": null, "participant_id": "4a"}, {"comparison": "identical", "extracted": {"images": {"diff": null, "normal": {"png": "review_assets/9c0eb8a10a2a24fc-ce1751ac.png", "svg": "review_assets/9c0eb8a10a2a24fc-ce1751ac.svg"}}, "label": "3a", "render_status": "ok", "smiles": "C[C@H](O)CC"}, "gold": {"images": {"diff": null, "normal": {"png": "review_assets/9c0eb8a10a2a24fc-ce1751ac.png", "svg": "review_assets/9c0eb8a10a2a24fc-ce1751ac.svg"}}, "label": "3a", "render_status": "ok", "smiles": "C[C@H](O)CC"}, "gold_participant_id": "3a", "highlight": false, "incomparable_reason": null, "participant_id": "3a"}, {"comparison": "identical", "extracted": {"images": {"diff": null, "normal": {"png": "review_assets/cd75bb4862177bca-ce1751ac.png", "svg": "review_assets/cd75bb4862177bca-ce1751ac.svg"}}, "label": "3b", "render_status": "ok", "smiles": "CC(=O)Cl"}, "gold": {"images": {"diff": null, "normal": {"png": "review_assets/cd75bb4862177bca-ce1751ac.png", "svg": "review_assets/cd75bb4862177bca-ce1751ac.svg"}}, "label": "3b", "render_status": "ok", "smiles": "CC(=O)Cl"}, "gold_participant_id": "3b", "highlight": false, "incomparable_reason": null, "participant_id": "3b"}], "human_status": "unreviewed", "issues": [], "machine_status": "clean", "participants": [{"evidence_ids": ["e2"], "field_evidence_ids": ["e2"], "field_path": "reactants.0.smiles", "has_field_evidence": true, "images": {"atommap": {"png": "review_assets/9c0eb8a10a2a24fc-4055fa2d.png", "svg": "review_assets/9c0eb8a10a2a24fc-4055fa2d.svg"}, "normal": {"png": "review_assets/9c0eb8a10a2a24fc-ff4abd31.png", "svg": "review_assets/9c0eb8a10a2a24fc-ff4abd31.svg"}, "stereo": {"png": "review_assets/9c0eb8a10a2a24fc-8a6c2966.png", "svg": "review_assets/9c0eb8a10a2a24fc-8a6c2966.svg"}}, "label": "3a", "machine_issues": [], "name": "(S)-butan-2-ol", "participant_id": "rxn-002:reactant:1", "render_status": "ok", "role": "reactant", "smiles": "C[C@H](O)CC", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [{"assignment": "S", "atom_index": 1, "specified": true}], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e2"], "field_evidence_ids": ["e2"], "field_path": "reactants.1.smiles", "has_field_evidence": true, "images": {"atommap": {"png": "review_assets/cd75bb4862177bca-4055fa2d.png", "svg": "review_assets/cd75bb4862177bca-4055fa2d.svg"}, "normal": {"png": "review_assets/cd75bb4862177bca-ff4abd31.png", "svg": "review_assets/cd75bb4862177bca-ff4abd31.svg"}, "stereo": {"png": "review_assets/cd75bb4862177bca-8a6c2966.png", "svg": "review_assets/cd75bb4862177bca-8a6c2966.svg"}}, "label": "3b", "machine_issues": [], "name": "acetyl chloride", "participant_id": "rxn-002:reactant:2", "render_status": "ok", "role": "reactant", "smiles": "CC(=O)Cl", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [{"assignment": null, "begin_atom": 1, "bond_index": 1, "end_atom": 2, "specified": false}], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e2"], "field_evidence_ids": ["e2"], "field_path": "products.0.smiles", "has_field_evidence": true, "images": {"atommap": {"png": "review_assets/43a417ebd2df4f22-4055fa2d.png", "svg": "review_assets/43a417ebd2df4f22-4055fa2d.svg"}, "normal": {"png": "review_assets/43a417ebd2df4f22-ff4abd31.png", "svg": "review_assets/43a417ebd2df4f22-ff4abd31.svg"}, "stereo": {"png": "review_assets/43a417ebd2df4f22-8a6c2966.png", "svg": "review_assets/43a417ebd2df4f22-8a6c2966.svg"}}, "label": "4a", "machine_issues": [], "name": "sec-butyl acetate", "participant_id": "rxn-002:product:1", "render_status": "ok", "role": "product", "smiles": "CC(=O)O[C@H](C)CC", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [{"assignment": null, "begin_atom": 1, "bond_index": 1, "end_atom": 2, "specified": false}], "centers": [{"assignment": "R", "atom_index": 4, "specified": true}], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e2"], "field_evidence_ids": [], "field_path": "reagents.0", "has_field_evidence": false, "images": {"normal": {"png": "review_assets/e0090ebb1b80e276-ff4abd31.png", "svg": "review_assets/e0090ebb1b80e276-ff4abd31.svg"}}, "label": "", "machine_issues": [], "name": "Et3N", "participant_id": "rxn-002:reagent:1", "render_status": "ok", "role": "reagent", "smiles": "CCN(CC)CC", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e2"], "field_evidence_ids": [], "field_path": "solvents.0", "has_field_evidence": false, "images": {"normal": {"png": "review_assets/a910e51b8ef4ac4d-ff4abd31.png", "svg": "review_assets/a910e51b8ef4ac4d-ff4abd31.svg"}}, "label": "", "machine_issues": [], "name": "CH2Cl2", "participant_id": "rxn-002:solvent:1", "render_status": "ok", "role": "solvent", "smiles": "ClCCl", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}], "position": 1, "products_text": "4a", "reactants_text": "3a, 3b", "reaction_id": "rxn-002", "reagents": ["Et3N"], "record_hash": "5e20590f84d693fffc9ac69d7b65e685c864e2d23e9f71456beedfb593b84919", "review_status": "needs_review", "solvents": ["CH2Cl2"], "temperature_c": 0.0, "time": "2 h", "yield_pct": 75.0}, {"condition_summary": "NaBH4 \u00b7 MeOH", "conditions": [{"condition_id": "rxn-003:cond:reagent", "evidence_ids": ["e3"], "extraction_state": "extracted", "field_evidence_ids": ["e3"], "field_path": null, "has_field_evidence": true, "kind": "reagent", "numeric_value": null, "stage_index": null, "unit": "", "value": "NaBH4"}, {"condition_id": "rxn-003:cond:solvent", "evidence_ids": ["e3"], "extraction_state": "extracted", "field_evidence_ids": ["e3"], "field_path": null, "has_field_evidence": true, "kind": "solvent", "numeric_value": null, "stage_index": null, "unit": "", "value": "MeOH"}], "confidence": 0.55, "context_note": null, "evidence_ids": ["e3"], "gold": {"alignment": "unmatched_extracted", "alignment_basis": "no gold match", "gold_reaction_id": null, "has_gold": true, "participant_results": [], "reaction_id": "rxn-003"}, "gold_pairs": [], "human_status": "unreviewed", "issues": [{"code": "R001_REACTANT_MISSING", "message": "Reactant structure unresolved", "severity": "warning", "suggested_value": null, "target_id": "5a"}], "machine_status": "clean", "participants": [{"evidence_ids": ["e3"], "field_evidence_ids": ["e3"], "field_path": "reactants.0.smiles", "has_field_evidence": true, "images": {"atommap": null, "normal": {"png": null, "svg": null}, "stereo": null}, "label": "5a", "machine_issues": [{"code": "R001_REACTANT_MISSING", "message": "Reactant structure unresolved", "severity": "warning", "target_id": "5a"}], "name": "unresolved substrate", "participant_id": "rxn-003:reactant:1", "render_status": "missing_smiles", "role": "reactant", "smiles": "", "stale_image": false, "stereo": {"analysis_note": "no SMILES provided", "bonds": [], "centers": [], "rdkit_available": false}, "structure_state": "unresolved"}, {"evidence_ids": ["e3"], "field_evidence_ids": ["e3"], "field_path": "products.0.smiles", "has_field_evidence": true, "images": {"atommap": {"png": "review_assets/3f5d5a797945beb3-4055fa2d.png", "svg": "review_assets/3f5d5a797945beb3-4055fa2d.svg"}, "normal": {"png": "review_assets/3f5d5a797945beb3-ff4abd31.png", "svg": "review_assets/3f5d5a797945beb3-ff4abd31.svg"}, "stereo": {"png": "review_assets/3f5d5a797945beb3-8a6c2966.png", "svg": "review_assets/3f5d5a797945beb3-8a6c2966.svg"}}, "label": "6a", "machine_issues": [], "name": "benzyl alcohol", "participant_id": "rxn-003:product:1", "render_status": "ok", "role": "product", "smiles": "OCc1ccccc1", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}, {"evidence_ids": ["e3"], "field_evidence_ids": [], "field_path": "reagents.0", "has_field_evidence": false, "images": {"atommap": null, "normal": {"png": null, "svg": null}, "stereo": null}, "label": "", "machine_issues": [], "name": "NaBH4", "participant_id": "rxn-003:reagent:1", "render_status": "missing_smiles", "role": "reagent", "smiles": "", "stale_image": false, "stereo": {"analysis_note": "no SMILES provided", "bonds": [], "centers": [], "rdkit_available": false}, "structure_state": "not_attempted"}, {"evidence_ids": ["e3"], "field_evidence_ids": [], "field_path": "solvents.0", "has_field_evidence": false, "images": {"normal": {"png": "review_assets/fc8842c641d91506-ff4abd31.png", "svg": "review_assets/fc8842c641d91506-ff4abd31.svg"}}, "label": "", "machine_issues": [], "name": "MeOH", "participant_id": "rxn-003:solvent:1", "render_status": "ok", "role": "solvent", "smiles": "CO", "stale_image": false, "stereo": {"analysis_note": null, "bonds": [], "centers": [], "rdkit_available": true}, "structure_state": "resolved"}], "position": 2, "products_text": "6a", "reactants_text": "5a", "reaction_id": "rxn-003", "reagents": ["NaBH4"], "record_hash": "4470457a9ddf51bca66cfad60a98a84c3f7c1da5393d7120c323f2515765da21", "review_status": "needs_review", "solvents": ["MeOH"], "temperature_c": null, "time": "", "yield_pct": null}], "record_count": 3}</script>
+
+<!-- APPLICATION LOGIC -->
+<script>
+(function() {
+  "use strict";
+
+  var T = {
+    pendingChanges: '项待处理', reviewerRequired: '请输入审核人姓名',
+    reasonRequired: '请填写理由（待定/不适用/拒绝操作需要）',
+    importedOk: '已导入 {n} 条操作', invalidFile: '无效的草稿文件: {err}',
+    noUnreviewed: '没有未审核的反应', confirmFirst: '请先确认当前反应',
+    staleBlocked: '存在旧图标记，请先修订后再确认', noGold: '未提供金标',
+    noRecords: '没有记录', noConditions: '无条件信息', noEvidence: '无证据信息',
+    imgLoadFailed: '结构图加载失败，请重新生成审核包'
+  };
+
+  var viewData = JSON.parse(document.getElementById("chemex-review-data").textContent);
+  var drafts = {};
+  var currentIdx = 0;
+  var queueList = document.getElementById("queue-list");
+  var detailPane = document.getElementById("detail-pane");
+  var searchInput = document.getElementById("queue-search");
+  var filterChips = document.querySelectorAll(".filter-chip");
+  var evPane = document.getElementById("evidence-pane");
+  var evList = document.getElementById("ev-list");
+
+  /* === Image fallback (capture phase) === */
+  document.addEventListener("error", function(e) {
+    if (!e.target.classList || !e.target.classList.contains("molecule-img")) return;
+    var img = e.target;
+    if (img.dataset.fallbackSrc && !img.dataset.fallbackTried) {
+      img.dataset.fallbackTried = "1";
+      img.src = img.dataset.fallbackSrc;
+    } else {
+      var notice = document.createElement("div");
+      notice.className = "molecule-load-error";
+      notice.textContent = T.imgLoadFailed;
+      if (img.parentNode) img.parentNode.replaceChild(notice, img);
+    }
+  }, true);
+
+  /* === Lightbox === */
+  function openLightbox(src, alt) {
+    var o = document.getElementById("lightbox-overlay");
+    o.querySelector(".lightbox-img").src = src;
+    o.querySelector(".lightbox-img").alt = alt || "";
+    o.classList.add("active");
+    o.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+  }
+  function closeLightbox() {
+    var o = document.getElementById("lightbox-overlay");
+    o.classList.remove("active");
+    o.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  }
+  document.addEventListener("click", function(e) {
+    var img = e.target.closest(".molecule-img");
+    if (img && img.src && img.tagName === "IMG") { openLightbox(img.src, img.alt); return; }
+    var o = document.getElementById("lightbox-overlay");
+    if (o.classList.contains("active") && (e.target.classList.contains("lightbox-backdrop") || e.target.classList.contains("lightbox-close") || e.target.closest(".lightbox-close"))) closeLightbox();
+  });
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape" && document.getElementById("lightbox-overlay").classList.contains("active")) closeLightbox();
+  });
+
+  /* === Tab switching === */
+  document.addEventListener("click", function(e) {
+    var btn = e.target.closest(".tab-btn");
+    if (!btn) return;
+    var tabBar = btn.closest(".tab-bar");
+    var detail = btn.closest(".reaction-detail");
+    if (!detail) return;
+    var tabName = btn.dataset.tab;
+    tabBar.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.toggle("active", b === btn); b.setAttribute("aria-selected", b === btn ? "true" : "false"); });
+    detail.querySelectorAll(".tab-panel").forEach(function(p) { p.classList.toggle("active", p.dataset.tab === tabName); });
+  });
+
+  /* === Stereo mode switching === */
+  document.addEventListener("click", function(e) {
+    var btn = e.target.closest(".stereo-mode-btn");
+    if (!btn) return;
+    var area = btn.closest(".stereo-img-area");
+    if (!area) return;
+    var mode = btn.dataset.mode;
+    area.querySelectorAll(".stereo-mode-btn").forEach(function(b) { b.classList.toggle("active", b === btn); });
+    var container = area.querySelector(".stereo-img-container");
+    if (!container) return;
+    var allImgs = container.querySelectorAll(".molecule-img.stereo-img");
+    var diffImgs = container.querySelectorAll(".stereo-diff-img");
+    allImgs.forEach(function(img) {
+      var isVariant = img.classList.contains("stereo-diff-img");
+      var show = false;
+      if (mode === "normal") show = !isVariant;
+      else if (mode === "stereo") show = isVariant && diffImgs.length > 0 && img === diffImgs[0];
+      else if (mode === "atommap") show = isVariant && diffImgs.length > 1 && img === diffImgs[1];
+      img.style.display = show ? "block" : "none";
+    });
+  });
+
+  /* === Gold diff toggle === */
+  document.addEventListener("click", function(e) {
+    var btn = e.target.closest(".gold-diff-toggle");
+    if (!btn) return;
+    var pair = btn.closest(".gold-pair");
+    if (!pair) return;
+    var showing = btn.classList.toggle("active");
+    btn.textContent = showing ? "原图" : "差异高亮";
+    pair.querySelectorAll(".gold-figure").forEach(function(fig) {
+      var n = fig.querySelector(".molecule-img:not(.gold-diff-img)");
+      var d = fig.querySelector(".gold-diff-img");
+      if (n) n.style.display = showing ? "none" : "";
+      if (d) d.style.display = showing ? "block" : "none";
+    });
+  });
+
+  /* === Hero scroll hint === */
+  function checkHeroScroll() {
+    document.querySelectorAll(".rxn-hero-canvas").forEach(function(c) { c.classList.toggle("is-scrollable", c.scrollWidth > c.clientWidth + 10); });
+  }
+  window.addEventListener("resize", checkHeroScroll);
+  setTimeout(checkHeroScroll, 100);
+
+  /* === Header init === */
+  (function() {
+    var title = "ChemEx-Lit Review";
+    if (viewData.reactions && viewData.reactions.length > 0) { title = viewData.reactions[0].reaction_id; if (viewData.reactions.length > 1) title += " +" + (viewData.reactions.length - 1); }
+    document.getElementById("header-title").textContent = title;
+    var v = "--";
+    if (viewData.reactions && viewData.reactions.length > 0) { var r0 = viewData.reactions[0]; v = r0.reaction_id + "#" + r0.position; }
+    document.getElementById("data-version").textContent = v;
+    updateProgress();
+    if (viewData.has_gold) document.getElementById("gold-version").textContent = "已提供";
+  })();
+
+  function updateProgress() {
+    var total = viewData.record_count || 0, reviewed = 0;
+    (viewData.reactions || []).forEach(function(r) { if (r.human_status === "confirmed" || r.human_status === "rejected") reviewed++; });
+    document.getElementById("review-progress").textContent = reviewed + "/" + total;
+  }
+
+  /* === Selection === */
+  function selectReaction(idx, skipScroll) {
+    currentIdx = parseInt(idx, 10);
+    queueList.querySelectorAll(".queue-item").forEach(function(el) { var m = el.dataset.idx === String(idx); el.classList.toggle("selected", m); el.setAttribute("aria-selected", m ? "true" : "false"); });
+    detailPane.querySelectorAll(".reaction-detail").forEach(function(el) { el.style.display = el.dataset.idx === String(idx) ? "" : "none"; });
+    updateEvidenceHighlight();
+    if (!skipScroll) { var sel = queueList.querySelector(".queue-item.selected"); if (sel) sel.scrollIntoView({ block: "nearest" }); }
+    updateFooterNav();
+    restoreActionStates();
+    checkHeroScroll();
+  }
+  function updateFooterNav() {
+    var items = getVisibleItems(), pos = -1;
+    items.forEach(function(el, i) { if (el.dataset.idx === String(currentIdx)) pos = i; });
+    document.getElementById("btn-prev").disabled = (pos <= 0);
+    var rxn = viewData.reactions[currentIdx];
+    if (rxn) document.getElementById("btn-confirm-reaction").disabled = (rxn.human_status === "confirmed" || rxn.human_status === "rejected");
+  }
+  function getVisibleItems() { return Array.from(queueList.querySelectorAll(".queue-item")).filter(function(el) { return el.style.display !== "none"; }); }
+
+  queueList.addEventListener("click", function(e) { var item = e.target.closest(".queue-item"); if (item) selectReaction(item.dataset.idx); });
+
+  /* === Search === */
+  searchInput.addEventListener("input", function() {
+    var q = searchInput.value.toLowerCase();
+    queueList.querySelectorAll(".queue-item").forEach(function(item) {
+      var h = (item.dataset.search || item.dataset.rid || "").toLowerCase();
+      item.style.display = (h.indexOf(q) >= 0 || item.dataset.rid.toLowerCase().indexOf(q) >= 0) ? "" : "none";
+    });
+    updateQueueCount();
+  });
+
+  /* === Filter chips === */
+  filterChips.forEach(function(chip) {
+    chip.addEventListener("click", function() {
+      filterChips.forEach(function(c) { c.classList.remove("active"); c.setAttribute("aria-pressed", "false"); });
+      chip.classList.add("active"); chip.setAttribute("aria-pressed", "true");
+      var filter = chip.dataset.filter;
+      queueList.querySelectorAll(".queue-item").forEach(function(item) {
+        var show = true;
+        if (filter === "unreviewed") show = item.dataset.human === "unreviewed";
+        else if (filter === "missing_structure") { var idx = parseInt(item.dataset.idx, 10); var rxn = viewData.reactions[idx]; show = rxn && rxn.participants && rxn.participants.some(function(p) { return p.structure_state === "unresolved" || p.structure_state === "not_attempted"; }); }
+        else if (filter === "stereo_pending") show = item.dataset.human === "pending";
+        else if (filter === "gold_diff") show = item.dataset.hasGold === "true";
+        item.style.display = show ? "" : "none";
+      });
+      updateQueueCount();
+    });
+  });
+  function updateQueueCount() { var v = queueList.querySelectorAll(".queue-item:not([style*='display: none'])").length; document.getElementById("queue-count").textContent = v + " 条反应"; }
+
+  /* === Evidence highlighting === */
+  function updateEvidenceHighlight() {
+    var rxn = viewData.reactions[currentIdx]; if (!rxn) return;
+    var evIds = new Set();
+    (rxn.evidence_ids || []).forEach(function(id) { evIds.add(id); });
+    (rxn.participants || []).forEach(function(p) { (p.evidence_ids || []).forEach(function(id) { evIds.add(id); }); (p.field_evidence_ids || []).forEach(function(id) { evIds.add(id); }); });
+    (rxn.conditions || []).forEach(function(c) { (c.evidence_ids || []).forEach(function(id) { evIds.add(id); }); (c.field_evidence_ids || []).forEach(function(id) { evIds.add(id); }); });
+    evList.querySelectorAll(".ev-item").forEach(function(el) { el.classList.toggle("highlighted", evIds.has(el.dataset.eid)); });
+    document.getElementById("ev-count").textContent = evIds.size + " 条相关";
+  }
+
+  /* === SMILES copy === */
+  window.copySmiles = function(pid) { var el = document.getElementById("smiles-" + pid); if (el) navigator.clipboard.writeText(el.textContent).catch(function() {}); };
+
+  /* === Draft actions === */
+  function setupActionButtons() {
+    document.addEventListener("click", function(e) {
+      var btn = e.target.closest(".act-btn"); if (!btn) return;
+      var actionsDiv = btn.closest(".target-actions"); if (!actionsDiv) return;
+      var kind = actionsDiv.dataset.targetKind, tid = actionsDiv.dataset.targetId, op = btn.dataset.op;
+      var key = kind + ":" + tid;
+      var reasonInput = actionsDiv.querySelector(".reason-input");
+      var needsReason = (op === "mark_pending" || op === "mark_not_applicable" || op === "reject");
+      if (needsReason && reasonInput) {
+        reasonInput.classList.add("visible"); reasonInput.required = true;
+        if (!reasonInput.value.trim()) { reasonInput.focus(); reasonInput.setCustomValidity(T.reasonRequired); reasonInput.reportValidity(); return; }
+        reasonInput.setCustomValidity("");
+      }
+      var reason = reasonInput ? reasonInput.value.trim() : null;
+      if (op === "confirm" && kind === "participant_identity") {
+        var rxn = viewData.reactions[currentIdx];
+        if (rxn) { var participant = rxn.participants.find(function(p) { return p.participant_id === tid; }); if (participant && participant.stale_image && !confirm(T.staleBlocked + "\n\n确定继续确认？")) return; }
+      }
+      if (op === "revise") {
+        var fieldPath = actionsDiv.dataset.fieldPath; if (!fieldPath) return;
+        var reviseInput = actionsDiv.querySelector(".revise-input"); if (!reviseInput) return;
+        var oldValue = actionsDiv.dataset.oldValue || "";
+        reviseInput.value = oldValue; reviseInput.style.display = "inline-block"; reviseInput.focus();
+        var reviseHandler = function(ev) {
+          if (ev.key === "Enter") {
+            ev.preventDefault(); var newValue = reviseInput.value.trim(); if (!newValue) return;
+            drafts[key] = { target_kind: kind, target_id: tid, op: "set_value", reason: null, path: fieldPath, old_value: oldValue || null, new_value: newValue };
+            reviseInput.style.display = "none"; reviseInput.removeEventListener("keydown", reviseHandler);
+            actionsDiv.querySelectorAll(".act-btn").forEach(function(b) { b.className = "act-btn"; });
+            btn.className = "act-btn active-confirm";
+            if (kind === "participant_identity" && fieldPath.indexOf(".smiles") >= 0) {
+              var card = actionsDiv.closest(".participant-card");
+              if (card) {
+                card.classList.add("stale");
+                var pcr = card.querySelector(".pcard-right");
+                if (pcr && !card.querySelector(".stale-badge")) { var sb = document.createElement("span"); sb.className = "stale-badge"; sb.setAttribute("aria-label", "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1"); sb.textContent = "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1"; pcr.appendChild(sb); }
+                var cb = actionsDiv.querySelector('[data-op="confirm"]'); if (cb) cb.disabled = true;
+              }
+            }
+            updatePendingCount(); trySaveDrafts();
+          } else if (ev.key === "Escape") { reviseInput.style.display = "none"; reviseInput.removeEventListener("keydown", reviseHandler); }
+        };
+        reviseInput.addEventListener("keydown", reviseHandler);
+        return;
+      }
+      drafts[key] = { target_kind: kind, target_id: tid, op: op, reason: reason || null };
+      actionsDiv.querySelectorAll(".act-btn").forEach(function(b) { b.className = "act-btn"; });
+      var ac = { confirm: "active-confirm", revise: "active-pending", set_value: "active-confirm", mark_pending: "active-pending", mark_not_applicable: "active-na", reject: "active-reject" };
+      btn.className = "act-btn " + (ac[op] || "");
+      updatePendingCount(); trySaveDrafts();
+    });
+  }
+  setupActionButtons();
+
+  document.addEventListener("click", function(e) {
+    var btn = e.target.closest(".act-btn"); if (!btn) return;
+    var op = btn.dataset.op;
+    if (op === "mark_pending" || op === "mark_not_applicable" || op === "reject") {
+      var ri = btn.closest(".target-actions").querySelector(".reason-input");
+      if (ri) { ri.classList.add("visible"); ri.required = true; ri.focus(); }
+    }
+  });
+
+  function restoreActionStates() {
+    Object.keys(drafts).forEach(function(key) {
+      var d = drafts[key];
+      var sel = '.target-actions[data-target-kind="' + d.target_kind + '"][data-target-id="' + d.target_id + '"]';
+      var ad = document.querySelector(sel); if (!ad) return;
+      var ac = { confirm: "active-confirm", revise: "active-pending", set_value: "active-confirm", mark_pending: "active-pending", mark_not_applicable: "active-na", reject: "active-reject" };
+      var displayOp = d.op === "set_value" ? "revise" : d.op;
+      ad.querySelectorAll(".act-btn").forEach(function(b) { b.className = "act-btn"; if (b.dataset.op === displayOp) b.className = "act-btn " + (ac[d.op] || ""); });
+      var ri = ad.querySelector(".reason-input"); if (ri && d.reason) { ri.value = d.reason; ri.classList.add("visible"); }
+      if (d.op === "set_value" && d.target_kind === "participant_identity" && d.path && d.path.indexOf(".smiles") >= 0) {
+        var card = ad.closest(".participant-card");
+        if (card) {
+          card.classList.add("stale");
+          var pcr = card.querySelector(".pcard-right");
+          if (pcr && !card.querySelector(".stale-badge")) { var sb = document.createElement("span"); sb.className = "stale-badge"; sb.setAttribute("aria-label", "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1"); sb.textContent = "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1"; pcr.appendChild(sb); }
+          var cb = ad.querySelector('[data-op="confirm"]'); if (cb) cb.disabled = true;
+        }
+      }
+    });
+  }
+
+  function updatePendingCount() { document.getElementById("pending-count").textContent = Object.keys(drafts).length; }
+  function trySaveDrafts() { try { localStorage.setItem("chemex-review-drafts", JSON.stringify(drafts)); } catch(e) {} }
+  function tryLoadDrafts() { try { var s = localStorage.getItem("chemex-review-drafts"); if (s) { drafts = JSON.parse(s); updatePendingCount(); } } catch(e) {} }
+  tryLoadDrafts();
+
+  /* === Export === */
+  function exportSubmission() {
+    var reviewer = document.getElementById("reviewer-input").value.trim();
+    if (!reviewer) { alert(T.reviewerRequired); document.getElementById("reviewer-input").focus(); return; }
+    var ops = [];
+    Object.keys(drafts).forEach(function(key) {
+      var d = drafts[key]; var parts = d.target_id.split(":");
+      ops.push({ reaction_id: parts[0], target_kind: d.target_kind, target_id: d.target_id, op: d.op, reason: d.reason || null, evidence_ids: [], path: d.path || null, old_value: d.old_value !== undefined ? d.old_value : null, new_value: d.new_value !== undefined ? d.new_value : null });
+    });
+    var bh = {}; (viewData.reactions || []).forEach(function(r) { bh[r.reaction_id] = r.record_hash || ""; });
+    var sid = "review-" + Date.now() + "-" + Math.random().toString(36).substr(2, 8);
+    var sub = { schema_version: "1.0", submission_id: sid, base_record_hashes: bh, operations: ops, reviewer: reviewer, created_at: new Date().toISOString() };
+    var blob = new Blob([JSON.stringify(sub, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob); var a = document.createElement("a");
+    a.href = url; a.download = "review-submission-" + sid + ".json"; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+  document.getElementById("btn-export").addEventListener("click", exportSubmission);
+  document.getElementById("btn-export-header").addEventListener("click", exportSubmission);
+
+  /* === Import === */
+  document.getElementById("btn-import").addEventListener("click", function() { document.getElementById("import-file").click(); });
+  document.getElementById("import-file").addEventListener("change", function(e) {
+    var file = e.target.files[0]; if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      try {
+        var imported = JSON.parse(ev.target.result);
+        if (imported.operations) { imported.operations.forEach(function(op) { drafts[op.target_kind + ":" + op.target_id] = op; }); updatePendingCount(); trySaveDrafts(); restoreActionStates(); alert(T.importedOk.replace("{n}", imported.operations.length)); }
+      } catch(err) { alert(T.invalidFile.replace("{err}", err.message)); }
+    };
+    reader.readAsText(file); e.target.value = "";
+  });
+
+  /* === Footer nav === */
+  document.getElementById("btn-prev").addEventListener("click", function() {
+    var items = getVisibleItems(), pos = -1;
+    items.forEach(function(el, i) { if (el.dataset.idx === String(currentIdx)) pos = i; });
+    if (pos > 0) selectReaction(items[pos - 1].dataset.idx);
+  });
+  document.getElementById("btn-next-unreviewed").addEventListener("click", function() {
+    var items = getVisibleItems(), found = false;
+    for (var i = 0; i < items.length; i++) { if (parseInt(items[i].dataset.idx, 10) > currentIdx && items[i].dataset.human === "unreviewed") { selectReaction(items[i].dataset.idx); found = true; break; } }
+    if (!found) { for (var j = 0; j < items.length; j++) { if (items[j].dataset.human === "unreviewed") { selectReaction(items[j].dataset.idx); found = true; break; } } }
+    if (!found) alert(T.noUnreviewed);
+  });
+  document.getElementById("btn-confirm-reaction").addEventListener("click", function() {
+    var ad = detailPane.querySelector('.reaction-detail[data-idx="' + currentIdx + '"] .target-actions[data-target-kind="reaction"]');
+    if (ad) { var cb = ad.querySelector('[data-op="confirm"]'); if (cb) cb.click(); }
+  });
+
+  /* === Keyboard === */
+  document.addEventListener("keydown", function(e) {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    var items = getVisibleItems(), pos = -1;
+    items.forEach(function(el, i) { if (el.dataset.idx === String(currentIdx)) pos = i; });
+    if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); if (pos < items.length - 1) selectReaction(items[pos + 1].dataset.idx); }
+    else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); if (pos > 0) selectReaction(items[pos - 1].dataset.idx); }
+    else if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) { var cb = detailPane.querySelector('.reaction-detail[data-idx="' + currentIdx + '"] [data-op="confirm"]'); if (cb) cb.click(); }
+  });
+
+  /* === Drawer toggles === */
+  document.getElementById("btn-toggle-evidence").addEventListener("click", function() { evPane.classList.toggle("drawer-open"); });
+  document.addEventListener("click", function(e) { if (evPane.classList.contains("drawer-open") && !evPane.contains(e.target) && e.target.id !== "btn-toggle-evidence") evPane.classList.remove("drawer-open"); });
+  var queueToggle = document.getElementById("btn-toggle-queue");
+  if (queueToggle) { queueToggle.addEventListener("click", function() { document.getElementById("queue-pane").classList.toggle("mobile-open"); }); }
+
+  /* === Auto-select first unreviewed === */
+  (function() {
+    if (!viewData.reactions || viewData.reactions.length === 0) return;
+    for (var i = 0; i < viewData.reactions.length; i++) { var r = viewData.reactions[i]; if (r.human_status === "unreviewed" && r.machine_status === "needs_review") { selectReaction(r.position, true); return; } }
+    for (var j = 0; j < viewData.reactions.length; j++) { if (viewData.reactions[j].human_status === "unreviewed") { selectReaction(viewData.reactions[j].position, true); return; } }
+    selectReaction(0, true);
+  })();
+
+  updateEvidenceHighlight();
+})();
+</script>
+</body>
+</html>

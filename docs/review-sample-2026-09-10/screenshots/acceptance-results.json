@@ -1,0 +1,100 @@
+{
+  "url": "file:///mnt/e/Calculations/AI4S_ML_Studys/%5B4%2B3%5D%20Mechain%20learning/exclean/extractor_20260602/docs/review-sample-2026-09-10/%E6%A0%B7%E4%BE%8B%20run/review.html",
+  "checks": [
+    {
+      "name": "no-svg-source-in-body",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "all-visible-molecule-images-loaded",
+      "ok": true,
+      "detail": "10/57 visible, broken=[]"
+    },
+    {
+      "name": "hero-visible",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "hero-fits-first-screen",
+      "ok": true,
+      "detail": "hero bottom=406.5"
+    },
+    {
+      "name": "no-page-horizontal-overflow",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "participant-grid-two-columns",
+      "ok": true,
+      "detail": "cols=2"
+    },
+    {
+      "name": "technical-details-collapsed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stereo-images-loaded",
+      "ok": true,
+      "detail": "{'total': 3, 'loaded': 3}"
+    },
+    {
+      "name": "stereo-initial-single-image",
+      "ok": true,
+      "detail": "per-container visible counts=[1, 1, 1]"
+    },
+    {
+      "name": "gold-images-loaded",
+      "ok": true,
+      "detail": "{'total': 6, 'loaded': 6}"
+    },
+    {
+      "name": "gold-diff-toggle-works",
+      "ok": true,
+      "detail": "diff imgs: {'total': 6, 'loaded': 6}"
+    },
+    {
+      "name": "gold-diff-images-visible",
+      "ok": true,
+      "detail": "4a visible imgs=2"
+    },
+    {
+      "name": "missing-structure-placeholder",
+      "ok": true,
+      "detail": "placeholders=3"
+    },
+    {
+      "name": "svg-to-png-fallback",
+      "ok": true,
+      "detail": "{'found': True, 'swapped': True, 'loaded': True}"
+    },
+    {
+      "name": "both-fail-shows-notice",
+      "ok": true,
+      "detail": "{'found': True, 'notice': True}"
+    },
+    {
+      "name": "evidence-drawer-opens",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "lightbox-opens",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "chinese-badges",
+      "ok": true,
+      "detail": "badge='—\\n未审核'"
+    },
+    {
+      "name": "no-js-errors",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}
