@@ -393,9 +393,9 @@ def test_protocol_paths_are_forward_slash_and_reopenable(cli_env: Path, monkeypa
     summary_payload = _parse_json(
         _invoke("run", str(pdf), "--mode", "semi", "--output-dir", str(run_dir), "--json")
     )
-    assert "\\" not in json.dumps(summary_payload)
+    assert "\\" not in json.dumps(summary_payload, ensure_ascii=False)
     manifest = ArtifactStore(run_dir).manifest()
-    assert "\\" not in json.dumps(manifest)
+    assert "\\" not in json.dumps(manifest, ensure_ascii=False)
     assert Path(manifest["input_path"]).is_file()
 
     run_summary = RunSummary.model_validate(summary_payload)

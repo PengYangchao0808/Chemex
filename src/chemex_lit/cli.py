@@ -27,11 +27,23 @@ from chemex_lit.credentials import (
     set_credential,
     validate_credential_name,
 )
-from chemex_lit.evaluation import evaluate_files
+from chemex_lit.evaluation import build_gold_comparisons, evaluate_files, load_gold
 from chemex_lit.errors import ChemExError
-from chemex_lit.models import ReactionRecord, RunSummary, normalize_mode
+from chemex_lit.models import (
+    EvidenceRef,
+    GoldComparison,
+    ReactionRecord,
+    ReviewDecision,
+    RunSummary,
+    normalize_mode,
+)
 from chemex_lit.pipeline import resume_run, run_pdf, run_status, submit_files
-from chemex_lit.review import apply_corrections, generate_review
+from chemex_lit.review import (
+    aggregate_human_status,
+    apply_corrections,
+    apply_submission,
+    generate_review,
+)
 from chemex_lit.store import ArtifactStore, atomic_write_text
 
 
@@ -237,33 +249,144 @@ def cancel(ctx: click.Context, run_dir: Path, as_json: bool) -> None:
 
 @main.command("review")
 @click.argument("run_dir", type=click.Path(path_type=Path, exists=True, file_okay=False))
-def review_command(run_dir: Path) -> None:
-    """Regenerate the single HTML review dashboard."""
+@click.option(
+    "--gold",
+    type=click.Path(path_type=Path, exists=True, dir_okay=False),
+    default=None,
+    help="Gold-standard JSONL for comparison overlay.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Print the review summary as JSON.")
+def review_command(run_dir: Path, gold: Path | None, as_json: bool) -> None:
+    """Regenerate the HTML review dashboard with full sidecar context.
+
+    Loads records, review_context.jsonl, review_decisions.jsonl, and
+    evidence.jsonl. When ``--gold`` is given, gold comparisons are
+    computed and persisted as gold_comparison.jsonl. When ``--gold`` is
+    absent but gold_comparison.jsonl already exists, it is reloaded for
+    reproducibility.
+    """
 
     store = ArtifactStore(run_dir)
     records = store.read_models("records.jsonl", ReactionRecord)
-    output = generate_review(records, store)
+    contexts = store.read_review_contexts()
+    decisions = store.read_review_decisions()
+    evidence = _read_evidence_defensive(store)
+
+    gold_info: dict[str, object] | None = None
+    gold_comparisons: list[GoldComparison] | None = None
+
+    if gold is not None:
+        try:
+            _gold_records, gold_source = load_gold(gold)
+        except ChemExError as exc:
+            raise click.UsageError(str(exc)) from exc
+        gold_comparisons = build_gold_comparisons(records, gold, store=store)
+        store.write_gold_comparisons(gold_comparisons)
+        gold_info = {
+            "file_name": gold_source.file_name,
+            "file_hash": gold_source.file_hash,
+            "entry_count": gold_source.entry_count,
+        }
+    elif (store.root / "gold_comparison.jsonl").is_file():
+        gold_comparisons = store.read_gold_comparisons() or None
+        if gold_comparisons:
+            first_source = gold_comparisons[0].gold_source
+            gold_info = {
+                "file_name": first_source.file_name,
+                "file_hash": first_source.file_hash,
+                "entry_count": first_source.entry_count,
+            }
+
+    output = generate_review(
+        records,
+        store,
+        contexts=contexts,
+        decisions=decisions,
+        gold_comparisons=gold_comparisons,
+        evidence=evidence,
+    )
+
+    if as_json:
+        envelope: dict[str, object] = {
+            "run_dir": store.root.as_posix(),
+            "review_html": output.as_posix(),
+            "records_count": len(records),
+            "human_status_counts": _count_human_statuses(
+                records, decisions, gold_comparisons
+            ),
+            "gold": gold_info,
+        }
+        click.echo(json.dumps(envelope, ensure_ascii=False, indent=2))
+        return
     click.echo(str(output))
 
 
 @main.command("review-apply")
 @click.argument("run_dir", type=click.Path(path_type=Path, exists=True, file_okay=False))
-@click.argument("corrections", type=click.Path(path_type=Path, exists=True, dir_okay=False))
+@click.argument("package", type=click.Path(path_type=Path, exists=True, dir_okay=False))
 @click.option("--confirmed-by", required=True, prompt=False)
-def review_apply(run_dir: Path, corrections: Path, confirmed_by: str) -> None:
-    """Apply explicit field corrections to records.corrected.jsonl."""
+def review_apply(run_dir: Path, package: Path, confirmed_by: str) -> None:
+    """Apply a review submission or legacy corrections to records.
+
+    PACKAGE is auto-detected: a ReviewSubmission (dict with submission_id
+    and operations) applies via the submission workflow; a JSON array of
+    ``{reaction_id, path, value}`` objects uses the legacy corrections
+    path.
+
+    After apply: records.corrected.jsonl is written, audit.jsonl is
+    appended, and review.html is regenerated to reflect the current
+    effective revision. The original records.jsonl is preserved.
+    """
 
     store = ArtifactStore(run_dir)
     records = store.read_models("records.jsonl", ReactionRecord)
-    corrected, audit_entries = apply_corrections(
-        records,
-        corrections,
-        confirmed_by=confirmed_by,
+    raw = json.loads(package.read_text(encoding="utf-8"))
+
+    is_submission = (
+        isinstance(raw, dict)
+        and "submission_id" in raw
+        and "operations" in raw
     )
+
+    try:
+        if is_submission:
+            corrected, audit_entries = apply_submission(
+                records,
+                package,
+                confirmed_by=confirmed_by,
+                store=store,
+            )
+        else:
+            corrected, audit_entries = apply_corrections(
+                records,
+                package,
+                confirmed_by=confirmed_by,
+            )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
     output = store.write_jsonl("records.corrected.jsonl", corrected)
     audit_output = store.append_jsonl("audit.jsonl", audit_entries)
-    click.echo(str(output))
-    click.echo(str(audit_output))
+
+    contexts = store.read_review_contexts()
+    decisions = store.read_review_decisions()
+    evidence = _read_evidence_defensive(store)
+    gold_comparisons = store.read_gold_comparisons() or None
+    review_html = generate_review(
+        corrected,
+        store,
+        contexts=contexts,
+        decisions=decisions,
+        gold_comparisons=gold_comparisons,
+        evidence=evidence,
+    )
+
+    click.echo(f"corrected records: {output}")
+    click.echo(f"audit log: {audit_output}")
+    click.echo(f"review dashboard: {review_html}")
+    click.echo(f"original records preserved: {store.root / 'records.jsonl'}")
+    mode_label = "submission" if is_submission else "corrections"
+    click.echo(f"applied {len(audit_entries)} {mode_label} entry/entries")
 
 
 @main.command("evaluate")
@@ -690,6 +813,37 @@ def _print_status(summary: RunSummary, as_json: bool) -> None:
             )
             for task_id in data.awaiting_task_ids[:5]:
                 click.echo(f"    awaiting: {task_id}")
+
+
+def _read_evidence_defensive(store: ArtifactStore) -> list[EvidenceRef]:
+    """Read evidence.jsonl from the store, returning an empty list when absent."""
+
+    evidence_path = store.root / "evidence.jsonl"
+    if not evidence_path.is_file():
+        return []
+    return store.read_models("evidence.jsonl", EvidenceRef)
+
+
+def _count_human_statuses(
+    records: list[ReactionRecord],
+    decisions: list[ReviewDecision],
+    gold_comparisons: list[GoldComparison] | None,
+) -> dict[str, int]:
+    """Aggregate human review status counts for the review --json envelope."""
+
+    gold_map: dict[str, GoldComparison] = {}
+    for gc in gold_comparisons or []:
+        gold_map[gc.reaction_id] = gc
+    dec_map: dict[str, list[ReviewDecision]] = {}
+    for dec in decisions:
+        dec_map.setdefault(dec.reaction_id, []).append(dec)
+    counts: dict[str, int] = {}
+    for rec in records:
+        status = aggregate_human_status(
+            rec.reaction_id, dec_map.get(rec.reaction_id, []), gold_map
+        )
+        counts[status] = counts.get(status, 0) + 1
+    return counts
 
 
 if __name__ == "__main__":
