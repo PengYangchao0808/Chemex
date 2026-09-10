@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal
@@ -537,3 +539,338 @@ def _strip_isotopes_canonical(mol: Any) -> str | None:
         return _strip_annotations(smiles, charges=False, isotopes=True)
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Structure rendering for the review workbench
+# ---------------------------------------------------------------------------
+
+RenderStatus = Literal["ok", "rdkit_missing", "invalid_smiles", "missing_smiles"]
+RenderMode = Literal["normal", "stereo", "atommap"]
+
+
+@dataclass(frozen=True)
+class StructureRender:
+    """Outcome of one structure render attempt."""
+
+    status: RenderStatus
+    png: bytes | None = None
+    svg: str | None = None
+
+
+def render_structure(
+    smiles: str | None,
+    *,
+    size: tuple[int, int] = (420, 280),
+    mode: RenderMode = "normal",
+    highlight_atoms: list[int] | None = None,
+) -> StructureRender:
+    """Render one SMILES to both PNG (2x retina) and SVG in a single call.
+
+    Args:
+        smiles: A SMILES string, or None/blank for missing.
+        size: Base width and height in pixels.  PNG is rendered at 2x this
+            size for retina sharpness; SVG uses the given size directly.
+        mode: Rendering mode — ``"normal"`` for plain depiction,
+            ``"stereo"`` for R/S/E/Z annotations with unassigned-stereo
+            highlights, or ``"atommap"`` for atom-index labels.
+        highlight_atoms: Extra atom indices to highlight in any mode (union
+            with mode-computed highlights).
+
+    Returns:
+        StructureRender with status and optional PNG/SVG payloads.
+    """
+    if not smiles or not smiles.strip():
+        return StructureRender(status="missing_smiles")
+
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import Draw  # pyright: ignore[reportAttributeAccessIssue]
+        from rdkit.Chem import rdDepictor
+    except (ImportError, ValueError, TypeError):
+        return StructureRender(status="rdkit_missing")
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return StructureRender(status="invalid_smiles")
+
+    rdDepictor.Compute2DCoords(mol)
+
+    # Collect mode-specific highlights.
+    mode_atoms = _stereo_highlight_atoms(mol, mode)
+    all_highlights: list[int] | None = None
+    if mode_atoms or highlight_atoms:
+        merged: set[int] = set()
+        if mode_atoms:
+            merged.update(mode_atoms)
+        if highlight_atoms:
+            merged.update(highlight_atoms)
+        all_highlights = sorted(merged)
+
+    # --- PNG at 2x for retina ---
+    png_w, png_h = size[0] * 2, size[1] * 2
+    png_drawer = Draw.MolDraw2DCairo(png_w, png_h)
+    _apply_mode_options(png_drawer, mode)
+    png_kwargs: dict[str, Any] = {}
+    if all_highlights is not None:
+        png_kwargs["highlightAtoms"] = all_highlights
+    png_drawer.DrawMolecule(mol, **png_kwargs)
+    png_drawer.FinishDrawing()
+    png_bytes = png_drawer.GetDrawingText()
+
+    # --- SVG at given size ---
+    svg_drawer = Draw.MolDraw2DSVG(size[0], size[1])
+    _apply_mode_options(svg_drawer, mode)
+    svg_kwargs: dict[str, Any] = {}
+    if all_highlights is not None:
+        svg_kwargs["highlightAtoms"] = all_highlights
+    svg_drawer.DrawMolecule(mol, **svg_kwargs)
+    svg_drawer.FinishDrawing()
+    svg_text = svg_drawer.GetDrawingText()
+
+    return StructureRender(status="ok", png=png_bytes, svg=svg_text)
+
+
+def _stereo_highlight_atoms(mol: Any, mode: RenderMode) -> list[int]:
+    """Compute atom indices to highlight for stereo mode."""
+    if mode != "stereo":
+        return []
+    from rdkit import Chem
+
+    atoms: set[int] = set()
+    for atom_idx, assignment in Chem.FindMolChiralCenters(
+        mol, includeUnassigned=True
+    ):
+        if assignment == "?":
+            atoms.add(atom_idx)
+
+    try:
+        Chem.FindPotentialStereoBonds(mol)
+        for bond in mol.GetBonds():
+            if bond.GetStereo() == Chem.rdchem.BondStereo.STEREOANY:
+                atoms.add(bond.GetBeginAtomIdx())
+                atoms.add(bond.GetEndAtomIdx())
+    except (AttributeError, TypeError):
+        pass
+
+    return sorted(atoms)
+
+
+def _apply_mode_options(drawer: Any, mode: RenderMode) -> None:
+    """Set drawer options for the given rendering mode."""
+    if mode == "stereo":
+        drawer.drawOptions().addStereoAnnotation = True
+    elif mode == "atommap":
+        drawer.drawOptions().addAtomIndices = True
+
+
+# ---------------------------------------------------------------------------
+# Hash-keyed asset helpers for the review workbench
+# ---------------------------------------------------------------------------
+
+
+def structure_hash(smiles: str) -> str | None:
+    """Return a short hex hash of the canonical isomeric SMILES.
+
+    Args:
+        smiles: A SMILES string.
+
+    Returns:
+        First 16 hex chars of sha256 of canonical SMILES, or None if
+        the SMILES cannot be canonicalized.
+    """
+    canonical = Validator.canonicalize(smiles)
+    if canonical is None:
+        return None
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def drawing_config_hash(mode: str, size: tuple[int, int]) -> str:
+    """Return a short hex hash of the drawing configuration.
+
+    Args:
+        mode: Rendering mode name.
+        size: Base width and height in pixels.
+
+    Returns:
+        First 8 hex chars of sha256 of a JSON object containing mode,
+        size, and the RDKit version string.
+    """
+    try:
+        from rdkit import rdBase
+
+        rdkit_version: str = rdBase.rdkitVersion
+    except (ImportError, ValueError, TypeError, AttributeError):
+        rdkit_version = "<none>"
+
+    payload = json.dumps(
+        {"mode": mode, "size": list(size), "rdkit": rdkit_version},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+
+
+def asset_basename(
+    smiles: str, mode: str, size: tuple[int, int] = (420, 280)
+) -> str | None:
+    """Return a filesystem-safe basename for a rendered structure asset.
+
+    Args:
+        smiles: A SMILES string.
+        mode: Rendering mode name.
+        size: Base width and height in pixels.
+
+    Returns:
+        ``"{structure_hash}-{config_hash}"`` (hex + dash only), or None
+        when the SMILES cannot be canonicalized.
+    """
+    s_hash = structure_hash(smiles)
+    if s_hash is None:
+        return None
+    c_hash = drawing_config_hash(mode, size)
+    return f"{s_hash}-{c_hash}"
+
+
+# ---------------------------------------------------------------------------
+# Gold-comparison highlight atoms
+# ---------------------------------------------------------------------------
+
+
+def gold_highlight_atoms(
+    extracted_smiles: str, gold_smiles: str
+) -> tuple[list[int], list[int]] | None:
+    """Find atom indices that differ between extracted and gold structures.
+
+    Returns a pair of index lists ``(extracted_atom_indices, gold_atom_indices)``
+    suitable for highlighting in a side-by-side render.  Returns ``None``
+    when the pair cannot be compared or the mapping is ambiguous.
+
+    Args:
+        extracted_smiles: SMILES from the extraction pipeline.
+        gold_smiles: Gold-standard SMILES.
+
+    Returns:
+        Tuple of two lists of atom indices, or None.
+    """
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import rdFMCS  # pyright: ignore[reportAttributeAccessIssue]
+    except (ImportError, ValueError, TypeError):
+        return None
+
+    mol_a = Chem.MolFromSmiles(extracted_smiles)
+    mol_b = Chem.MolFromSmiles(gold_smiles)
+    if mol_a is None or mol_b is None:
+        return None
+
+    iso_a = Chem.MolToSmiles(mol_a, canonical=True, isomericSmiles=True)
+    iso_b = Chem.MolToSmiles(mol_b, canonical=True, isomericSmiles=True)
+    if iso_a == iso_b:
+        return ([], [])
+
+    # Try unambiguous full-structure substructure match in both directions.
+    matches_a_in_b = mol_b.GetSubstructMatches(mol_a)
+    matches_b_in_a = mol_a.GetSubstructMatches(mol_b)
+
+    mapping: dict[int, int] | None = None
+
+    if len(matches_a_in_b) == 1 and len(matches_a_in_b[0]) == mol_a.GetNumAtoms():
+        # a fully matches b — map a→b
+        mapping = dict(enumerate(matches_a_in_b[0]))
+    elif len(matches_b_in_a) == 1 and len(matches_b_in_a[0]) == mol_b.GetNumAtoms():
+        # b fully matches a — map b→a, then invert
+        raw = matches_b_in_a[0]
+        mapping = {v: k for k, v in enumerate(raw)}
+
+    if mapping is None:
+        # Fall back to MCS.
+        mcs_result = rdFMCS.FindMCS(
+            [mol_a, mol_b],
+            matchValences=True,
+            ringMatchesRingOnly=False,
+            completeRingsOnly=False,
+            timeout=5,
+        )
+        mcs_smarts = mcs_result.smartsString
+        if not mcs_smarts:
+            return None
+        mcs_mol = Chem.MolFromSmarts(mcs_smarts)
+        if mcs_mol is None:
+            return None
+        if mcs_mol.GetNumAtoms() < 3:
+            return None
+
+        mcs_in_a = mol_a.GetSubstructMatches(mcs_mol)
+        mcs_in_b = mol_b.GetSubstructMatches(mcs_mol)
+        if len(mcs_in_a) != 1 or len(mcs_in_b) != 1:
+            return None
+
+        mcs_a_indices = set(mcs_in_a[0])
+        mcs_b_indices = set(mcs_in_b[0])
+
+        # Build mapping from the MCS alignment: position i in MCS →
+        # a_indices[i] ↔ b_indices[i].
+        mcs_a_list = mcs_in_a[0]
+        mcs_b_list = mcs_in_b[0]
+        mapping = {mcs_a_list[i]: mcs_b_list[i] for i in range(len(mcs_a_list))}
+
+        diff_a = sorted(set(range(mol_a.GetNumAtoms())) - mcs_a_indices)
+        diff_b = sorted(set(range(mol_b.GetNumAtoms())) - mcs_b_indices)
+        if diff_a or diff_b:
+            return (diff_a, diff_b)
+
+        # All atoms in MCS — no connectivity difference, check stereo.
+        return _stereo_diff_atoms_from_mapping(mol_a, mol_b, mapping)
+
+    # We have a full mapping. Check stereo differences.
+    return _stereo_diff_atoms_from_mapping(mol_a, mol_b, mapping)
+
+
+def _stereo_diff_atoms_from_mapping(
+    mol_a: Any, mol_b: Any, mapping: dict[int, int]
+) -> tuple[list[int], list[int]] | None:
+    """Given an atom mapping, find atoms with stereo differences."""
+    from rdkit import Chem
+    from rdkit.Chem import rdchem
+
+    centers_a = dict(Chem.FindMolChiralCenters(mol_a, includeUnassigned=True))
+    centers_b = dict(Chem.FindMolChiralCenters(mol_b, includeUnassigned=True))
+
+    diff_a: list[int] = []
+    diff_b: list[int] = []
+
+    for idx_a, assign_a in centers_a.items():
+        idx_b = mapping.get(idx_a)
+        if idx_b is None:
+            continue
+        assign_b = centers_b.get(idx_b, "?")
+        if assign_a != assign_b:
+            diff_a.append(idx_a)
+            diff_b.append(idx_b)
+
+    for bond_a in mol_a.GetBonds():
+        if bond_a.GetBondType() != rdchem.BondType.DOUBLE:
+            continue
+        begin_b = mapping.get(bond_a.GetBeginAtomIdx())
+        end_b = mapping.get(bond_a.GetEndAtomIdx())
+        if begin_b is None or end_b is None:
+            continue
+        bond_b = mol_b.GetBondBetweenAtoms(begin_b, end_b)
+        if bond_b is None or bond_b.GetBondType() != rdchem.BondType.DOUBLE:
+            continue
+        stereo_a = bond_a.GetStereo()
+        stereo_b = bond_b.GetStereo()
+        a_spec = stereo_a in (
+            rdchem.BondStereo.STEREOE, rdchem.BondStereo.STEREOZ
+        )
+        b_spec = stereo_b in (
+            rdchem.BondStereo.STEREOE, rdchem.BondStereo.STEREOZ
+        )
+        if a_spec != b_spec or (a_spec and b_spec and stereo_a != stereo_b):
+            diff_a.extend([bond_a.GetBeginAtomIdx(), bond_a.GetEndAtomIdx()])
+            diff_b.extend([begin_b, end_b])
+
+    if not diff_a and not diff_b:
+        return ([], [])
+    return (sorted(set(diff_a)), sorted(set(diff_b)))

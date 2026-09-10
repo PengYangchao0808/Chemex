@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 
 import pytest
@@ -12,8 +13,13 @@ from chemex_lit.chemistry import (
     StereoCenter,
     StructureComparison,
     analyze_stereo,
+    asset_basename,
     compare_structures,
+    drawing_config_hash,
+    gold_highlight_atoms,
     render_smiles_svg,
+    render_structure,
+    structure_hash,
 )
 
 
@@ -286,3 +292,204 @@ def test_structure_comparison_frozen() -> None:
     comp = StructureComparison(level="identical", detail="test", comparable=True)
     with pytest.raises(AttributeError):
         comp.level = "changed"  # type: ignore[misc]
+
+
+# --- render_structure ---
+
+
+def test_render_structure_ok() -> None:
+    result = render_structure("CCO")
+    assert result.status == "ok"
+    assert result.png is not None
+    assert result.png.startswith(b"\x89PNG")
+    assert result.svg is not None
+    assert "<svg" in result.svg
+
+
+def test_render_structure_missing_none() -> None:
+    result = render_structure(None)
+    assert result.status == "missing_smiles"
+    assert result.png is None
+    assert result.svg is None
+
+
+def test_render_structure_missing_empty() -> None:
+    result = render_structure("")
+    assert result.status == "missing_smiles"
+
+
+def test_render_structure_missing_whitespace() -> None:
+    result = render_structure("   ")
+    assert result.status == "missing_smiles"
+
+
+def test_render_structure_invalid_smiles() -> None:
+    result = render_structure("not-smiles")
+    assert result.status == "invalid_smiles"
+    assert result.png is None
+    assert result.svg is None
+
+
+def test_render_structure_rdkit_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "rdkit", None)
+    result = render_structure("CCO")
+    assert result.status == "rdkit_missing"
+    assert result.png is None
+    assert result.svg is None
+
+
+def test_render_structure_stereo_mode() -> None:
+    normal = render_structure("C[C@H](O)CC", mode="normal")
+    stereo = render_structure("C[C@H](O)CC", mode="stereo")
+    assert normal.status == "ok"
+    assert stereo.status == "ok"
+    assert normal.svg is not None
+    assert stereo.svg is not None
+    assert normal.svg != stereo.svg
+    assert "Stereo" in stereo.svg or "stereo" in stereo.svg or stereo.svg != normal.svg
+
+
+def test_render_structure_atommap_mode() -> None:
+    normal = render_structure("CCO", mode="normal")
+    atommap = render_structure("CCO", mode="atommap")
+    assert normal.status == "ok"
+    assert atommap.status == "ok"
+    assert normal.svg is not None
+    assert atommap.svg is not None
+    assert normal.svg != atommap.svg
+
+
+def test_render_structure_highlight_atoms() -> None:
+    result = render_structure("CCO", highlight_atoms=[0, 1])
+    assert result.status == "ok"
+    assert result.png is not None
+    assert result.svg is not None
+
+
+def test_render_structure_png_2x() -> None:
+    result = render_structure("CCO", size=(200, 150))
+    assert result.status == "ok"
+    assert result.png is not None
+    assert result.svg is not None
+
+
+def test_render_structure_stereo_unassigned_highlight() -> None:
+    result = render_structure("CC(O)F", mode="stereo")
+    assert result.status == "ok"
+    assert result.svg is not None
+
+
+# --- structure_hash ---
+
+
+def test_structure_hash_valid() -> None:
+    h = structure_hash("CCO")
+    assert h is not None
+    assert len(h) == 16
+    assert all(c in "0123456789abcdef" for c in h)
+
+
+def test_structure_hash_deterministic() -> None:
+    assert structure_hash("CCO") == structure_hash("CCO")
+    assert structure_hash("OCC") == structure_hash("CCO")
+
+
+def test_structure_hash_differs_for_molecules() -> None:
+    assert structure_hash("CCO") != structure_hash("CCC")
+
+
+def test_structure_hash_invalid() -> None:
+    assert structure_hash("not-smiles") is None
+
+
+# --- drawing_config_hash ---
+
+
+def test_drawing_config_hash_deterministic() -> None:
+    h1 = drawing_config_hash("normal", (420, 280))
+    h2 = drawing_config_hash("normal", (420, 280))
+    assert h1 == h2
+    assert len(h1) == 8
+    assert all(c in "0123456789abcdef" for c in h1)
+
+
+def test_drawing_config_hash_differs_by_mode() -> None:
+    assert drawing_config_hash("normal", (420, 280)) != drawing_config_hash(
+        "stereo", (420, 280)
+    )
+
+
+def test_drawing_config_hash_differs_by_size() -> None:
+    assert drawing_config_hash("normal", (420, 280)) != drawing_config_hash(
+        "normal", (200, 150)
+    )
+
+
+# --- asset_basename ---
+
+
+def test_asset_basename_deterministic() -> None:
+    b1 = asset_basename("CCO", "normal")
+    b2 = asset_basename("CCO", "normal")
+    assert b1 == b2
+
+
+def test_asset_basename_format() -> None:
+    b = asset_basename("CCO", "normal")
+    assert b is not None
+    assert re.match(r"^[0-9a-f]{16}-[0-9a-f]{8}$", b)
+
+
+def test_asset_basename_differs_by_mode() -> None:
+    assert asset_basename("CCO", "normal") != asset_basename("CCO", "stereo")
+
+
+def test_asset_basename_differs_by_molecule() -> None:
+    assert asset_basename("CCO", "normal") != asset_basename("CCC", "normal")
+
+
+def test_asset_basename_none_for_invalid() -> None:
+    assert asset_basename("not-smiles", "normal") is None
+
+
+# --- gold_highlight_atoms ---
+
+
+def test_gold_highlight_identical() -> None:
+    result = gold_highlight_atoms("CCO", "CCO")
+    assert result is not None
+    assert result == ([], [])
+
+
+def test_gold_highlight_enantiomer() -> None:
+    result = gold_highlight_atoms("C[C@H](O)CC", "C[C@@H](O)CC")
+    assert result is not None
+    extracted, gold = result
+    assert len(extracted) > 0
+    assert len(gold) > 0
+    assert 1 in extracted
+
+
+def test_gold_highlight_no_overlap() -> None:
+    result = gold_highlight_atoms("CCO", "c1ccccc1")
+    assert result is None
+
+
+def test_gold_highlight_unparseable_a() -> None:
+    assert gold_highlight_atoms("not-smiles", "CCO") is None
+
+
+def test_gold_highlight_unparseable_b() -> None:
+    assert gold_highlight_atoms("CCO", "not-smiles") is None
+
+
+def test_gold_highlight_both_unparseable() -> None:
+    assert gold_highlight_atoms("bad-a", "bad-b") is None
+
+
+def test_gold_highlight_same_connectivity_diff_stereo() -> None:
+    result = gold_highlight_atoms("C/C=C/C", "C/C=C\\C")
+    assert result is not None
+    extracted, gold = result
+    assert len(extracted) > 0
+    assert len(gold) > 0
