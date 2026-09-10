@@ -147,7 +147,7 @@ def _check_envelope(step: str, summary: RunSummary) -> int | None:
     payload = summary.model_dump(mode="json")
     if set(payload) != RUN_SUMMARY_KEYS:
         return _fail(step, f"envelope keys {sorted(payload)} != contract")
-    if "\\" in json.dumps(payload):
+    if "\\" in json.dumps(payload, ensure_ascii=False):
         return _fail(step, "envelope contains a backslash path")
     print(f"[OK]   {step}: status={summary.status} awaiting={len(summary.awaiting)}")
     return None

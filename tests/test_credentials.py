@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -71,7 +72,8 @@ def test_set_roundtrip_permissions_and_atomicity() -> None:
     assert set(store.credentials) == {"A_KEY", "B_KEY"}
     path = auth_store_path()
     assert path.is_file()
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if sys.platform != "win32":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert not list(path.parent.glob(".auth-*.tmp"))
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == 1
 

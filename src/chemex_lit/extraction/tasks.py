@@ -85,7 +85,7 @@ def build_table_tasks(document: DocumentBundle, prompts: Any) -> list[Extraction
         if evidence.asset_path:
             images.append(
                 TaskImageAsset(
-                    path=evidence.asset_path,
+                    path=Path(evidence.asset_path).as_posix(),
                     evidence_id=evidence.evidence_id,
                     context=page_context,
                 )
@@ -149,7 +149,7 @@ def build_structure_tasks(document: DocumentBundle, prompts: Any) -> list[Extrac
                 assets=TaskAssets(
                     images=[
                         TaskImageAsset(
-                            path=str(path),
+                            path=path.resolve().as_posix(),
                             evidence_id=evidence_id,
                             context=context,
                         )
