@@ -572,3 +572,22 @@ class GoldComparison(StrictModel):
     alignment_basis: str | None = None
     participant_results: list[GoldParticipantComparison] = Field(default_factory=list)
     gold_source: GoldSource
+
+
+class StructureImageAsset(StrictModel):
+    """Descriptor for one rendered structure image asset.
+
+    ``asset_id`` is the filesystem basename (without extension) used under
+    ``review_assets/``.  ``svg_path`` and ``png_path`` are store-relative
+    paths to the persisted files.  ``structure_hash`` is the short hex
+    hash of the canonical SMILES used for cache reuse.  ``render_status``
+    captures the outcome of the render attempt; ``error`` carries the
+    detail when status is not ``"ok"``.
+    """
+
+    asset_id: str
+    svg_path: str | None = None
+    png_path: str | None = None
+    structure_hash: str | None = None
+    render_status: Literal["ok", "rdkit_missing", "invalid_smiles", "missing_smiles"]
+    error: str | None = None

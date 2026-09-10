@@ -18,6 +18,7 @@ from chemex_lit.models import (
     ReviewOperation,
     ReviewParticipant,
     ReviewSubmission,
+    StructureImageAsset,
 )
 
 
@@ -528,3 +529,61 @@ class TestLiteralExhaustiveness:
             _review_operation_payload(target_kind=target_kind)
         )
         assert instance.target_kind == target_kind
+
+
+# ---------------------------------------------------------------------------
+# StructureImageAsset
+# ---------------------------------------------------------------------------
+
+
+class TestStructureImageAssetRoundTrip:
+    def test_minimal(self) -> None:
+        payload: dict[str, Any] = {
+            "asset_id": "abc123-def456",
+            "render_status": "ok",
+        }
+        instance = StructureImageAsset.model_validate(payload)
+        dumped = instance.model_dump(mode="json", exclude_none=True)
+        assert StructureImageAsset.model_validate(dumped) == instance
+
+    def test_full(self) -> None:
+        payload: dict[str, Any] = {
+            "asset_id": "abc123-def456",
+            "svg_path": "review_assets/abc123-def456.svg",
+            "png_path": "review_assets/abc123-def456.png",
+            "structure_hash": "a" * 16,
+            "render_status": "ok",
+            "error": None,
+        }
+        instance = StructureImageAsset.model_validate(payload)
+        dumped = instance.model_dump(mode="json", exclude_none=True)
+        assert StructureImageAsset.model_validate(dumped) == instance
+        assert instance.svg_path == "review_assets/abc123-def456.svg"
+
+    def test_error_status_with_message(self) -> None:
+        payload: dict[str, Any] = {
+            "asset_id": "bad",
+            "render_status": "invalid_smiles",
+            "error": "Cannot parse SMILES",
+        }
+        instance = StructureImageAsset.model_validate(payload)
+        assert instance.render_status == "invalid_smiles"
+        assert instance.error == "Cannot parse SMILES"
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["ok", "rdkit_missing", "invalid_smiles", "missing_smiles"],
+)
+def test_structure_image_asset_render_statuses(status: str) -> None:
+    instance = StructureImageAsset.model_validate(
+        {"asset_id": "test", "render_status": status}
+    )
+    assert instance.render_status == status
+
+
+def test_structure_image_asset_extra_fields_rejected() -> None:
+    with pytest.raises(ValidationError, match="not permitted"):
+        StructureImageAsset.model_validate(
+            {"asset_id": "test", "render_status": "ok", "extra": True}
+        )
