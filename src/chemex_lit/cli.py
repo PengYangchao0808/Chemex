@@ -274,10 +274,11 @@ def review_command(run_dir: Path, gold: Path | None, as_json: bool) -> None:
 
     gold_info: dict[str, object] | None = None
     gold_comparisons: list[GoldComparison] | None = None
+    gold_records: list[ReactionRecord] | None = None
 
     if gold is not None:
         try:
-            _gold_records, gold_source = load_gold(gold)
+            gold_records, gold_source = load_gold(gold)
         except ChemExError as exc:
             raise click.UsageError(str(exc)) from exc
         gold_comparisons = build_gold_comparisons(records, gold, store=store)
@@ -303,6 +304,7 @@ def review_command(run_dir: Path, gold: Path | None, as_json: bool) -> None:
         contexts=contexts,
         decisions=decisions,
         gold_comparisons=gold_comparisons,
+        gold_records=gold_records,
         evidence=evidence,
     )
 

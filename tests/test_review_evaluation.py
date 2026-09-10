@@ -18,6 +18,7 @@ from chemex_lit.models import (
     CompoundRef,
     EvidenceRef,
     GoldComparison,
+    GoldParticipantComparison,
     GoldSource,
     ReactionRecord,
     ReviewContext,
@@ -1129,3 +1130,244 @@ def test_payload_condition_field_path_solvent() -> None:
     rxn = view["reactions"][0]
     solvent_cond = next(c for c in rxn["conditions"] if c["kind"] == "solvent")
     assert solvent_cond["field_path"] == "solvents.0"
+
+
+# ---------------------------------------------------------------------------
+# New tests: asset-based rendering
+# ---------------------------------------------------------------------------
+
+
+def test_build_review_view_participant_has_images_and_render_status() -> None:
+    rec = record(reactant_smiles="CCO")
+    view = build_review_view([rec])
+    rxn = view["reactions"][0]
+    reactant = next(p for p in rxn["participants"] if p["role"] == "reactant")
+    assert "images" in reactant
+    assert "render_status" in reactant
+    assert "image" not in reactant
+    assert "svg" not in reactant
+    assert reactant["render_status"] in (
+        "ok", "rdkit_missing", "invalid_smiles", "missing_smiles"
+    )
+    assert "normal" in reactant["images"]
+
+
+def test_build_review_view_missing_smiles_render_status() -> None:
+    rec = record(reactant_smiles="")
+    view = build_review_view([rec])
+    rxn = view["reactions"][0]
+    reactant = next(p for p in rxn["participants"] if p["role"] == "reactant")
+    assert reactant["render_status"] == "missing_smiles"
+    assert reactant["images"]["normal"]["svg"] is None
+    assert reactant["images"]["normal"]["png"] is None
+    assert reactant["images"]["stereo"] is None
+    assert reactant["images"]["atommap"] is None
+
+
+def test_build_review_view_invalid_smiles_render_status() -> None:
+    rec = record(reactant_smiles="not_a_smiles")
+    view = build_review_view([rec])
+    rxn = view["reactions"][0]
+    reactant = next(p for p in rxn["participants"] if p["role"] == "reactant")
+    assert reactant["render_status"] == "invalid_smiles"
+    assert reactant["images"]["normal"]["png"] is None
+
+
+def test_generate_review_no_raw_svg_in_html(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "run")
+    output = generate_review([record()], store)
+    html = output.read_text(encoding="utf-8")
+    assert "<svg" not in html
+    assert "&lt;svg" not in html
+
+
+def test_review_view_has_no_svg_or_image_keys() -> None:
+    rec = record(reactant_smiles="CCO")
+    view = build_review_view([rec])
+    rxn = view["reactions"][0]
+    for p in rxn["participants"]:
+        assert "svg" not in p
+        assert "image" not in p
+        assert "images" in p
+        assert "render_status" in p
+
+
+def test_review_view_asset_paths_are_store_relative(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "run")
+    rec = record(reactant_smiles="CCO")
+    generate_review([rec], store)
+    view = build_review_view([rec], store=store)
+    rxn = view["reactions"][0]
+    reactant = next(p for p in rxn["participants"] if p["role"] == "reactant")
+    if reactant["render_status"] == "ok":
+        assert reactant["images"]["normal"]["svg"].startswith("review_assets/")
+        assert reactant["images"]["normal"]["svg"].endswith(".svg")
+        assert reactant["images"]["normal"]["png"].endswith(".png")
+
+
+def test_generate_review_asset_files_exist(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "run")
+    generate_review([record(reactant_smiles="CCO")], store)
+    assets_dir = store.root / "review_assets"
+    assert assets_dir.is_dir()
+    svg_files = list(assets_dir.glob("*.svg"))
+    png_files = list(assets_dir.glob("*.png"))
+    assert len(svg_files) >= 1
+    assert len(png_files) >= 1
+
+
+def test_generate_review_asset_files_reused_on_second_call(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "run")
+    rec = record(reactant_smiles="CCO")
+    generate_review([rec], store)
+    assets_dir = store.root / "review_assets"
+    files_before = {f.name: f.stat().st_mtime for f in assets_dir.iterdir()}
+    generate_review([rec], store)
+    files_after = {f.name: f.stat().st_mtime for f in assets_dir.iterdir()}
+    assert files_before == files_after
+
+
+def test_build_review_view_condition_summary_with_conditions() -> None:
+    rec = record(
+        reagents=["Pd(PPh3)4", "K2CO3"],
+        solvents=["THF"],
+        temperature_c=65,
+        time="12h",
+        yield_pct=82,
+    )
+    view = build_review_view([rec])
+    rxn = view["reactions"][0]
+    summary = rxn["condition_summary"]
+    assert "Pd(PPh3)4" in summary
+    assert "K2CO3" in summary
+    assert "THF" in summary
+    assert "65 °C" in summary
+    assert "12h" in summary
+    assert "收率 82%" in summary
+
+
+def test_build_review_view_condition_summary_empty_when_no_conditions() -> None:
+    rec = record(reagents=[], solvents=[], temperature_c=None, time=None, yield_pct=None)
+    view = build_review_view([rec])
+    rxn = view["reactions"][0]
+    assert rxn["condition_summary"] == ""
+
+
+def test_build_review_view_gold_pairs_with_gold_records() -> None:
+    rec = record(reactant_smiles="CCO")
+    gold_rec = ReactionRecord(
+        reaction_id="gold-r1",
+        reactants=[CompoundRef(label="7", smiles="CCO", role="reactant")],
+        products=[CompoundRef(label="8", smiles="CCO", role="product")],
+        reagents=[],
+        solvents=[],
+        confidence=0.9,
+        review_status="accepted",
+    )
+    gold = GoldComparison(
+        reaction_id="r1",
+        gold_reaction_id="gold-r1",
+        alignment="mapped",
+        participant_results=[
+            GoldParticipantComparison(
+                participant_id="r1:reactant:1",
+                gold_participant_id="7",
+                comparison="stereo_only",
+            ),
+        ],
+        gold_source=GoldSource(
+            file_name="gold.jsonl",
+            file_hash="abc",
+            entry_count=1,
+            gold_schema_version="1.0",
+        ),
+    )
+    store = None
+    view = build_review_view(
+        [rec], gold_comparisons=[gold], gold_records=[gold_rec], store=store
+    )
+    rxn = view["reactions"][0]
+    assert len(rxn["gold_pairs"]) == 1
+    pair = rxn["gold_pairs"][0]
+    assert pair["participant_id"] == "r1:reactant:1"
+    assert pair["gold_participant_id"] == "7"
+    assert pair["comparison"] == "stereo_only"
+    assert pair["extracted"] is not None
+    assert pair["gold"] is not None
+    assert pair["extracted"]["smiles"] == "CCO"
+    assert pair["gold"]["smiles"] == "CCO"
+
+
+def test_build_review_view_gold_pairs_without_gold_records() -> None:
+    rec = record(reactant_smiles="CCO")
+    gold = GoldComparison(
+        reaction_id="r1",
+        gold_reaction_id="gold-r1",
+        alignment="mapped",
+        participant_results=[
+            GoldParticipantComparison(
+                participant_id="r1:reactant:1",
+                gold_participant_id="7",
+                comparison="stereo_only",
+            ),
+        ],
+        gold_source=GoldSource(
+            file_name="gold.jsonl",
+            file_hash="abc",
+            entry_count=1,
+            gold_schema_version="1.0",
+        ),
+    )
+    view = build_review_view([rec], gold_comparisons=[gold])
+    rxn = view["reactions"][0]
+    assert len(rxn["gold_pairs"]) == 1
+    pair = rxn["gold_pairs"][0]
+    assert pair["extracted"] is not None
+    assert pair["gold"] is None
+    assert pair["highlight"] is False
+
+
+def test_build_review_view_gold_pairs_no_gold_comparisons() -> None:
+    rec = record()
+    view = build_review_view([rec])
+    rxn = view["reactions"][0]
+    assert rxn["gold_pairs"] == []
+
+
+def test_build_review_view_gold_pairs_resolve_label_keyed_ids() -> None:
+    # evaluation._part_id emits label/name (e.g. "7"), not review-scheme ids.
+    rec = record(reactant_smiles="C[C@H](O)CC")
+    gold_rec = ReactionRecord(
+        reaction_id="gold-r1",
+        reactants=[CompoundRef(label="7", smiles="C[C@@H](O)CC", role="reactant")],
+        products=[],
+        reagents=[],
+        solvents=[],
+        confidence=0.9,
+        review_status="accepted",
+    )
+    gold = GoldComparison(
+        reaction_id="r1",
+        gold_reaction_id="gold-r1",
+        alignment="mapped",
+        participant_results=[
+            GoldParticipantComparison(
+                participant_id="7",
+                gold_participant_id="7",
+                comparison="stereo_only",
+            ),
+        ],
+        gold_source=GoldSource(
+            file_name="gold.jsonl",
+            file_hash="abc",
+            entry_count=1,
+            gold_schema_version="1.0",
+        ),
+    )
+    view = build_review_view([rec], gold_comparisons=[gold], gold_records=[gold_rec])
+    pair = view["reactions"][0]["gold_pairs"][0]
+    assert pair["extracted"] is not None
+    assert pair["extracted"]["smiles"] == "C[C@H](O)CC"
+    assert pair["gold"] is not None
+    assert pair["gold"]["smiles"] == "C[C@@H](O)CC"
+    assert pair["highlight"] is True

@@ -23,8 +23,9 @@ from jinja2 import Environment, select_autoescape
 from chemex_lit.chemistry import (
     Validator,
     analyze_stereo,
-    render_smiles,
-    render_smiles_svg,
+    asset_basename,
+    gold_highlight_atoms,
+    render_structure,
 )
 from chemex_lit.errors import utc_now
 from chemex_lit.models import (
@@ -117,8 +118,8 @@ class _ParticipantDisplay:
     name: str
     smiles: str
     structure_state: str
-    image: str
-    svg: str
+    images: dict[str, Any]
+    render_status: str
     stale_image: bool
     machine_issues: list[dict[str, Any]]
     evidence_ids: list[str]
@@ -415,31 +416,86 @@ def _analyze_stereo_display(smiles: str | None) -> _StereoDisplay:
     )
 
 
-def _render_participant_image(
+def _render_participant_assets(
     smiles: str | None,
-    reaction_id: str,
-    participant_id: str,
+    role: str,
     store: ArtifactStore | None,
-) -> tuple[str, str, bool]:
-    """Render PNG (into store) and SVG. Returns (image_path, svg, stale_image)."""
-    if not smiles:
-        return ("", "", False)
-    safe_pid = _sanitize_filename(participant_id)
-    relative = f"review_assets/{safe_pid}.png"
-    svg = render_smiles_svg(smiles) or ""
-    stale = False
-    if store is not None:
-        png = render_smiles(smiles)
-        if png is not None:
-            existing_path = store.root / relative
-            if existing_path.is_file():
-                # Check if existing image is for a different SMILES by
-                # comparing file size as a cheap staleness heuristic.
-                # True comparison requires re-rendering, which is expensive.
-                pass
-            store.write_bytes(relative, png)
-            return (relative, svg, stale)
-    return ("", svg, stale)
+) -> tuple[dict[str, Any], str]:
+    """Render structure images as hashed asset files.
+
+    Returns ``(images_dict, render_status)``.  When *store* is ``None``
+    only render_status is computed (paths are all ``None``).
+
+    Args:
+        smiles: SMILES string, or ``None``/blank for missing.
+        role: Participant role; stereo/atommap modes only for
+            reactant/product.
+        store: ArtifactStore for writing asset files.  ``None`` means
+            pure view-building with no rendering.
+
+    Returns:
+        Tuple of (images dict, render_status string).
+    """
+    _IMG_SIZE = (420, 280)
+    _empty = {"svg": None, "png": None}
+
+    # Auxiliary participants remain condition metadata, never structure assets.
+    if role not in ("reactant", "product"):
+        return {"normal": dict(_empty), "stereo": None, "atommap": None}, "not_applicable"
+
+    # No SMILES at all → missing_smiles, no images.
+    if not smiles or not smiles.strip():
+        return {"normal": dict(_empty), "stereo": None, "atommap": None}, "missing_smiles"
+
+    # Store-less path: only compute render_status.
+    if store is None:
+        canonical = Validator.canonicalize(smiles)
+        status = "ok" if canonical else "invalid_smiles"
+        return {"normal": dict(_empty), "stereo": None, "atommap": None}, status
+
+    # Determine which modes to render.
+    modes: list[str] = ["normal"]
+    if role in ("reactant", "product"):
+        modes.extend(["stereo", "atommap"])
+
+    images: dict[str, Any] = {}
+    overall_status: str = "ok"
+
+    for mode in modes:
+        result = render_structure(smiles, size=_IMG_SIZE, mode=mode)  # type: ignore[arg-type]
+        if result.status != "ok":
+            if mode == "normal":
+                # Normal mode failure is the overall status.
+                overall_status = result.status
+                images["normal"] = dict(_empty)
+            else:
+                images[mode] = None
+            continue
+
+        basename = asset_basename(smiles, mode, _IMG_SIZE)
+        if basename is None:
+            if mode == "normal":
+                overall_status = "invalid_smiles"
+                images["normal"] = dict(_empty)
+            else:
+                images[mode] = None
+            continue
+
+        svg_rel = f"review_assets/{basename}.svg"
+        png_rel = f"review_assets/{basename}.png"
+
+        # Write SVG (cache-reuse: skip if file already exists).
+        svg_path = store.root / svg_rel
+        if not svg_path.is_file() and result.svg is not None:
+            store.write_bytes(svg_rel, result.svg.encode("utf-8"))
+        # Write PNG (cache-reuse: skip if file already exists).
+        png_path = store.root / png_rel
+        if not png_path.is_file() and result.png is not None:
+            store.write_bytes(png_rel, result.png)
+
+        images[mode] = {"svg": svg_rel, "png": png_rel}
+
+    return images, overall_status
 
 
 def _build_participant_display(
@@ -461,8 +517,8 @@ def _build_participant_display(
         for issue in record.issues
         if issue.target_id == (participant.label or participant.name or "")
     ]
-    img_path, svg, stale = _render_participant_image(
-        participant.smiles, reaction_id, participant.participant_id, store
+    images, render_status = _render_participant_assets(
+        participant.smiles, participant.role, store
     )
     has_field = bool(participant.field_evidence_ids)
     return _ParticipantDisplay(
@@ -472,9 +528,9 @@ def _build_participant_display(
         name=participant.name or "",
         smiles=participant.smiles or "",
         structure_state=participant.structure_state,
-        image=img_path,
-        svg=svg,
-        stale_image=stale,
+        images=images,
+        render_status=render_status,
+        stale_image=False,
         machine_issues=machine_issues,
         evidence_ids=list(participant.evidence_ids),
         field_evidence_ids=list(participant.field_evidence_ids),
@@ -558,6 +614,238 @@ def _resolve_evidence(
     return resolved, missing
 
 
+def _build_condition_summary(
+    record: ReactionRecord,
+    ctx: ReviewContext | None,
+) -> str:
+    """Build a one-line condition summary string.
+
+    Joins catalyst/ligand/reagent values, solvents, temperature, time,
+    and yield with `` · ``.  Returns ``""`` when nothing is known.
+    """
+    parts: list[str] = []
+
+    if ctx is not None:
+        cat_parts: list[str] = []
+        for cond in ctx.conditions:
+            if cond.kind in ("catalyst", "ligand", "reagent") and cond.value:
+                cat_parts.append(cond.value)
+        if cat_parts:
+            parts.append(" · ".join(cat_parts))
+    elif record.reagents:
+        parts.append(" · ".join(record.reagents))
+
+    if record.solvents:
+        parts.append(" · ".join(record.solvents))
+    if record.temperature_c is not None:
+        parts.append(f"{record.temperature_c:g} °C")
+    if record.time:
+        parts.append(record.time)
+    if record.yield_pct is not None:
+        parts.append(f"收率 {record.yield_pct:g}%")
+
+    return " · ".join(parts)
+
+
+def _build_gold_side(
+    smiles: str | None,
+    label: str,
+    store: ArtifactStore | None,
+    highlight: list[int] | None,
+) -> dict[str, Any]:
+    """Build one side of a gold-pair comparison (images dict + render_status)."""
+    _IMG_SIZE = (360, 260)
+    _empty = {"svg": None, "png": None}
+
+    if not smiles or not smiles.strip():
+        return {
+            "label": label,
+            "smiles": smiles or "",
+            "images": {"normal": dict(_empty), "diff": None},
+            "render_status": "missing_smiles",
+        }
+
+    if store is None:
+        canonical = Validator.canonicalize(smiles)
+        status = "ok" if canonical else "invalid_smiles"
+        return {
+            "label": label,
+            "smiles": smiles,
+            "images": {"normal": dict(_empty), "diff": None},
+            "render_status": status,
+        }
+
+    result = render_structure(smiles, size=_IMG_SIZE, mode="normal")
+    if result.status != "ok":
+        return {
+            "label": label,
+            "smiles": smiles,
+            "images": {"normal": dict(_empty), "diff": None},
+            "render_status": result.status,
+        }
+
+    basename = asset_basename(smiles, "normal", _IMG_SIZE)
+    if basename is None:
+        return {
+            "label": label,
+            "smiles": smiles,
+            "images": {"normal": dict(_empty), "diff": None},
+            "render_status": "invalid_smiles",
+        }
+
+    normal_images = _write_render_assets(store, result, basename)
+
+    diff_images: dict[str, str | None] | None = None
+    if highlight:
+        hl_result = render_structure(
+            smiles, size=_IMG_SIZE, mode="normal", highlight_atoms=highlight
+        )
+        if hl_result.status == "ok":
+            hl_hash = hashlib.sha256(
+                json.dumps(sorted(highlight), separators=(",", ":")).encode()
+            ).hexdigest()[:8]
+            hl_basename = f"{basename}-hl{hl_hash}"
+            diff_images = _write_render_assets(store, hl_result, hl_basename)
+
+    return {
+        "label": label,
+        "smiles": smiles,
+        "images": {"normal": normal_images, "diff": diff_images},
+        "render_status": "ok",
+    }
+
+
+def _write_render_assets(
+    store: ArtifactStore,
+    result: Any,
+    basename: str,
+) -> dict[str, str | None]:
+    """Write SVG and PNG for a render result. Returns path dict."""
+    svg_rel = f"review_assets/{basename}.svg"
+    png_rel = f"review_assets/{basename}.png"
+    svg_path = store.root / svg_rel
+    if not svg_path.is_file() and result.svg is not None:
+        store.write_bytes(svg_rel, result.svg.encode("utf-8"))
+    png_path = store.root / png_rel
+    if not png_path.is_file() and result.png is not None:
+        store.write_bytes(png_rel, result.png)
+    return {"svg": svg_rel, "png": png_rel}
+
+
+def _build_gold_pairs(
+    record: ReactionRecord,
+    ctx: ReviewContext | None,
+    gold_map: dict[str, GoldComparison],
+    gold_records: list[ReactionRecord] | None,
+    store: ArtifactStore | None,
+) -> list[dict[str, Any]]:
+    """Build gold-pair comparison entries for one reaction."""
+    gold = gold_map.get(record.reaction_id)
+    if gold is None:
+        return []
+
+    gold_record_map: dict[str, ReactionRecord] = {}
+    if gold_records:
+        for gr in gold_records:
+            gold_record_map[gr.reaction_id] = gr
+
+    participants_raw = ctx.participants if ctx is not None else _synthesize_participants(record)
+    # evaluation._part_id identifies compounds by ``label or name``, so the
+    # primary lookup uses the same key; the review-scheme participant_id is
+    # kept as a fallback for hand-written comparison files.
+    participant_lookup: dict[str, ReviewParticipant] = {}
+    for p in participants_raw:
+        participant_lookup.setdefault(p.label or p.name or "<unlabelled>", p)
+        participant_lookup.setdefault(p.participant_id, p)
+
+    pairs: list[dict[str, Any]] = []
+    for pr in gold.participant_results:
+        extracted_side: dict[str, Any] | None = None
+        ext_part = participant_lookup.get(pr.participant_id)
+        if pr.comparison != "missing_extracted" and ext_part is not None:
+            extracted_side = _build_gold_side(
+                ext_part.smiles, ext_part.label or ext_part.name or pr.participant_id, store, None
+            )
+
+        gold_side: dict[str, Any] | None = None
+        if (
+            pr.comparison != "missing_gold"
+            and gold_records
+            and gold.gold_reaction_id
+            and pr.gold_participant_id
+        ):
+            gold_rec = gold_record_map.get(gold.gold_reaction_id)
+            if gold_rec is not None:
+                gold_compound = _find_gold_compound(gold_rec, pr.gold_participant_id)
+                if gold_compound is not None:
+                    gold_side = _build_gold_side(
+                        gold_compound.smiles,
+                        gold_compound.label or gold_compound.name or pr.gold_participant_id,
+                        store,
+                        None,
+                    )
+
+        highlight = False
+        ext_highlights: list[int] | None = None
+        gold_highlights: list[int] | None = None
+        if (
+            extracted_side is not None
+            and gold_side is not None
+            and extracted_side.get("smiles")
+            and gold_side.get("smiles")
+            and pr.comparison != "identical"
+        ):
+            hl = gold_highlight_atoms(extracted_side["smiles"], gold_side["smiles"])
+            if hl is not None and (hl[0] or hl[1]):
+                ext_highlights = hl[0]
+                gold_highlights = hl[1]
+                highlight = True
+                if ext_part is not None:
+                    extracted_side = _build_gold_side(
+                        ext_part.smiles,
+                        ext_part.label or ext_part.name or pr.participant_id,
+                        store,
+                        ext_highlights,
+                    )
+                gold_compound_2 = None
+                if gold_records and gold.gold_reaction_id and pr.gold_participant_id:
+                    gold_rec_2 = gold_record_map.get(gold.gold_reaction_id)
+                    if gold_rec_2 is not None:
+                        gold_compound_2 = _find_gold_compound(
+                            gold_rec_2, pr.gold_participant_id
+                        )
+                if gold_compound_2 is not None:
+                    gold_side = _build_gold_side(
+                        gold_compound_2.smiles,
+                        gold_compound_2.label or gold_compound_2.name
+                        or pr.gold_participant_id or "",
+                        store,
+                        gold_highlights,
+                    )
+
+        pairs.append({
+            "participant_id": pr.participant_id,
+            "gold_participant_id": pr.gold_participant_id,
+            "comparison": pr.comparison,
+            "incomparable_reason": pr.incomparable_reason,
+            "extracted": extracted_side,
+            "gold": gold_side,
+            "highlight": highlight,
+        })
+
+    return pairs
+
+
+def _find_gold_compound(
+    gold_record: ReactionRecord, gold_participant_id: str
+) -> CompoundRef | None:
+    """Find a compound in a gold record by label or name matching _part_id."""
+    for compound in gold_record.reactants + gold_record.products:
+        if (compound.label or compound.name or "<unlabelled>") == gold_participant_id:
+            return compound
+    return None
+
+
 def build_review_view(
     records: list[ReactionRecord],
     *,
@@ -565,6 +853,7 @@ def build_review_view(
     contexts: list[ReviewContext] | None = None,
     decisions: list[ReviewDecision] | None = None,
     gold_comparisons: list[GoldComparison] | None = None,
+    gold_records: list[ReactionRecord] | None = None,
     evidence: list[EvidenceRef] | None = None,
 ) -> dict[str, Any]:
     """Build the complete review view model as a plain dict.
@@ -615,20 +904,7 @@ def build_review_view(
             display = _build_participant_display(
                 p, record.reaction_id, record, evidence_map, store, is_legacy
             )
-            # Check stale image: if participant SMILES differs from rendered
-            # SMILES and image exists
             stale = False
-            if display.image and p.smiles:
-                canonical = Validator.canonicalize(p.smiles)
-                if canonical:
-                    # We store the canonical at render time; if re-rendered
-                    # the canonical in the SVG matches. Staleness is when the
-                    # image was rendered for an older SMILES version.
-                    # For now, we flag stale when we cannot canonicalize
-                    # (RDKit unavailable) but image exists.
-                    pass
-            # Detect stale: if record hash changed since last context and
-            # participant SMILES differs
             if ctx is not None and ctx.record_hash != hash_map.get(record.reaction_id):
                 stale = True
             participants.append({
@@ -638,8 +914,8 @@ def build_review_view(
                 "name": display.name,
                 "smiles": display.smiles,
                 "structure_state": display.structure_state,
-                "image": display.image,
-                "svg": display.svg,
+                "images": display.images,
+                "render_status": display.render_status,
                 "stale_image": stale or display.stale_image,
                 "machine_issues": display.machine_issues,
                 "evidence_ids": display.evidence_ids,
@@ -707,6 +983,9 @@ def build_review_view(
             "human_status": human_status,
             "position": position,
             "participants": participants,
+            "structure_participants": [
+                p for p in participants if p["role"] in ("reactant", "product")
+            ],
             "conditions": conditions,
             "reactants_text": ", ".join(
                 c.label or c.name or "?" for c in record.reactants
@@ -738,6 +1017,10 @@ def build_review_view(
                 "participant_results": gold.participant_results,
                 "has_gold": gold.has_gold,
             },
+            "condition_summary": _build_condition_summary(record, ctx),
+            "gold_pairs": _build_gold_pairs(
+                record, ctx, gold_map, gold_records, store
+            ),
             "context_note": context_note,
         })
 
@@ -1393,6 +1676,7 @@ def generate_review(
     contexts: list[ReviewContext] | None = None,
     decisions: list[ReviewDecision] | None = None,
     gold_comparisons: list[GoldComparison] | None = None,
+    gold_records: list[ReactionRecord] | None = None,
     evidence: list[EvidenceRef] | None = None,
 ) -> Path:
     """Render the only supported review dashboard into the run directory.
@@ -1403,6 +1687,7 @@ def generate_review(
         contexts: Optional ReviewContext list.
         decisions: Optional ReviewDecision list.
         gold_comparisons: Optional GoldComparison list.
+        gold_records: Optional gold ReactionRecord list for image pairs.
         evidence: Optional EvidenceRef list.
 
     Returns:
@@ -1414,6 +1699,7 @@ def generate_review(
         contexts=contexts,
         decisions=decisions,
         gold_comparisons=gold_comparisons,
+        gold_records=gold_records,
         evidence=evidence,
     )
 

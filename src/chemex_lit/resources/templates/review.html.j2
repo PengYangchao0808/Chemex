@@ -1,3 +1,27 @@
+{# ---- Status label macros ---- #}
+{% macro human_label(s) -%}
+{%- if s == 'unreviewed' -%}未审核{%- elif s == 'in_review' -%}审核中{%- elif s == 'confirmed' -%}已确认{%- elif s == 'pending' -%}待解决{%- elif s == 'rejected' -%}已否决{%- else -%}{{ s }}{%- endif -%}
+{%- endmacro %}
+{% macro machine_label(s) -%}
+{%- if s == 'clean' -%}机器校验通过{%- elif s == 'needs_review' -%}需人工复核{%- else -%}{{ s }}{%- endif -%}
+{%- endmacro %}
+{% macro state_label(s) -%}
+{%- if s == 'resolved' -%}已解析{%- elif s == 'unresolved' -%}未解析{%- elif s == 'not_attempted' -%}未尝试{%- else -%}{{ s }}{%- endif -%}
+{%- endmacro %}
+{% macro gold_cmp_label(c) -%}
+{%- if c == 'identical' -%}一致{%- elif c == 'connectivity_differs' -%}连接关系不同{%- elif c == 'stereo_only' -%}仅立体化学不同{%- elif c == 'stereo_specificity_differs' -%}立体指定程度不同{%- elif c == 'charge_salt_isotope_differs' -%}电荷/盐/同位素不同{%- elif c == 'missing_extracted' -%}提取缺失{%- elif c == 'missing_gold' -%}金标缺失{%- elif c == 'uncomparable' -%}不可比较{%- else -%}{{ c }}{%- endif -%}
+{%- endmacro %}
+{% macro render_msg(rs) -%}
+{%- if rs == 'rdkit_missing' -%}渲染不可用（缺少 RDKit）{%- elif rs == 'invalid_smiles' -%}SMILES 无法解析{%- elif rs == 'missing_smiles' -%}结构未解析{%- else -%}结构图不可用{%- endif -%}
+{%- endmacro %}
+{# ---- Molecule image macro: <img> with SVG-first, PNG fallback ---- #}
+{% macro mol_img(img, alt, cls='', lazy=true) -%}
+{%- if img and img.svg -%}
+<img class="molecule-img {{ cls }}" src="{{ img.svg }}" data-fallback-src="{{ img.png or '' }}" alt="{{ alt }}" decoding="async"{% if lazy %} loading="lazy"{% endif %}>
+{%- elif img and img.png -%}
+<img class="molecule-img {{ cls }}" src="{{ img.png }}" alt="{{ alt }}" decoding="async"{% if lazy %} loading="lazy"{% endif %}>
+{%- endif -%}
+{%- endmacro %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -12,13 +36,10 @@
   --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-md: 14px; --fs-lg: 16px; --fs-xl: 18px;
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px;
   --radius-sm: 3px; --radius-md: 5px; --radius-lg: 8px;
-  /* Neutral palette */
   --c-bg: #f4f5f7; --c-surface: #ffffff; --c-surface-alt: #f8f9fb;
   --c-border: #d1d5db; --c-border-light: #e5e7eb;
   --c-text: #1f2937; --c-text-secondary: #6b7280; --c-text-muted: #9ca3af;
-  /* Accent */
   --c-accent: #2563eb; --c-accent-hover: #1d4ed8; --c-accent-light: #eff6ff;
-  /* Status */
   --c-unreviewed: #7c3aed; --c-unreviewed-bg: #f3f0ff;
   --c-in-review: #d97706; --c-in-review-bg: #fef9ee;
   --c-confirmed: #059669; --c-confirmed-bg: #ecfdf5;
@@ -26,117 +47,56 @@
   --c-rejected: #dc2626; --c-rejected-bg: #fef2f2;
   --c-clean: #059669; --c-clean-bg: #ecfdf5;
   --c-needs-review: #dc2626; --c-needs-review-bg: #fef2f2;
-  /* Severity */
   --c-error: #dc2626; --c-warning: #d97706; --c-info: #2563eb;
-  /* Gold */
   --c-gold-bg: #fefce8; --c-gold-border: #facc15;
-  /* Stale */
   --c-stale: #ea580c; --c-stale-bg: #fff7ed;
 }
-
-/* ===== Reset ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font: var(--fs-base)/1.5 var(--font-sans); color: var(--c-text);
-  background: var(--c-bg); overflow: hidden; height: 100vh;
-}
+body { font: var(--fs-base)/1.5 var(--font-sans); color: var(--c-text); background: var(--c-bg); overflow: hidden; height: 100vh; }
 button { font: inherit; cursor: pointer; border: none; background: none; }
 input, textarea { font: inherit; }
 :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 code, .mono { font-family: var(--font-mono); }
 
-/* ===== App shell ===== */
-.app {
-  display: grid;
-  grid-template-rows: 44px 1fr 40px;
-  grid-template-columns: minmax(200px, 20%) 1fr minmax(240px, 30%);
-  height: 100vh; overflow: hidden;
-}
+/* ===== App shell — two-column ===== */
+.app { display: grid; grid-template-rows: 44px 1fr 40px; grid-template-columns: 240px 1fr; height: 100vh; overflow: hidden; }
 
 /* ===== Header ===== */
-.header {
-  grid-column: 1 / -1; display: flex; align-items: center;
-  gap: var(--sp-3); padding: 0 var(--sp-4);
-  background: #1e293b; color: #e2e8f0; font-size: var(--fs-sm);
-  border-bottom: 1px solid #334155;
-}
+.header { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--sp-3); padding: 0 var(--sp-4); background: #1e293b; color: #e2e8f0; font-size: var(--fs-sm); border-bottom: 1px solid #334155; }
 .header .title-area { flex: 1; display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
-.header .title-area h1 {
-  font-size: var(--fs-md); font-weight: 700; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; color: #f1f5f9;
-}
+.header .title-area h1 { font-size: var(--fs-md); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #f1f5f9; }
 .header .meta-chips { display: flex; gap: var(--sp-1); flex-wrap: wrap; align-items: center; }
-.header .meta-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  padding: 1px 7px; border-radius: 3px; font-size: var(--fs-xs);
-  background: rgba(255,255,255,0.08); color: #cbd5e1; white-space: nowrap;
-}
+.header .meta-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 3px; font-size: var(--fs-xs); background: rgba(255,255,255,0.08); color: #cbd5e1; white-space: nowrap; }
 .header .meta-chip .chip-label { opacity: 0.7; }
 .header .actions-group { display: flex; gap: var(--sp-1); align-items: center; }
-.header .btn-header {
-  padding: 3px 10px; font-size: var(--fs-xs); border-radius: var(--radius-sm);
-  border: 1px solid rgba(255,255,255,0.15); color: #e2e8f0;
-  background: rgba(255,255,255,0.06); transition: background 0.15s;
-}
+.header .btn-header { padding: 3px 10px; font-size: var(--fs-xs); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.15); color: #e2e8f0; background: rgba(255,255,255,0.06); transition: background 0.15s; }
 .header .btn-header:hover { background: rgba(255,255,255,0.14); }
-.header .btn-primary {
-  background: var(--c-accent); border-color: var(--c-accent); color: #fff;
-}
+.header .btn-primary { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
 .header .btn-primary:hover { background: var(--c-accent-hover); }
 
 /* ===== Queue pane ===== */
-.queue-pane {
-  background: var(--c-surface); border-right: 1px solid var(--c-border);
-  display: flex; flex-direction: column; overflow: hidden;
-  grid-row: 2;
-}
-.queue-toolbar {
-  padding: var(--sp-2); border-bottom: 1px solid var(--c-border-light);
-  display: flex; flex-direction: column; gap: var(--sp-2);
-}
-.queue-search {
-  width: 100%; padding: 5px 8px; border: 1px solid var(--c-border);
-  border-radius: var(--radius-sm); font-size: var(--fs-base);
-  background: var(--c-surface-alt);
-}
+.queue-pane { background: var(--c-surface); border-right: 1px solid var(--c-border); display: flex; flex-direction: column; overflow: hidden; grid-row: 2; }
+.queue-toolbar { padding: var(--sp-2); border-bottom: 1px solid var(--c-border-light); display: flex; flex-direction: column; gap: var(--sp-2); }
+.queue-search { width: 100%; padding: 5px 8px; border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--fs-base); background: var(--c-surface-alt); }
 .queue-search::placeholder { color: var(--c-text-muted); }
 .filter-chips { display: flex; gap: 3px; flex-wrap: wrap; }
-.filter-chip {
-  padding: 2px 7px; font-size: var(--fs-xs); border-radius: var(--radius-sm);
-  border: 1px solid var(--c-border); background: var(--c-surface);
-  color: var(--c-text-secondary); transition: all 0.12s; white-space: nowrap;
-}
+.filter-chip { padding: 2px 7px; font-size: var(--fs-xs); border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; white-space: nowrap; }
 .filter-chip:hover { border-color: var(--c-accent); color: var(--c-accent); }
-.filter-chip.active {
-  background: var(--c-accent); color: #fff; border-color: var(--c-accent);
-}
-.queue-count {
-  font-size: var(--fs-xs); color: var(--c-text-muted);
-  padding: 0 var(--sp-2); border-bottom: 1px solid var(--c-border-light);
-  line-height: 22px;
-}
+.filter-chip.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+.queue-count { font-size: var(--fs-xs); color: var(--c-text-muted); padding: 0 var(--sp-2); border-bottom: 1px solid var(--c-border-light); line-height: 22px; }
 .queue-list { flex: 1; overflow-y: auto; }
-.queue-item {
-  padding: 6px var(--sp-3); border-bottom: 1px solid var(--c-border-light);
-  cursor: pointer; display: flex; flex-direction: column; gap: 2px;
-  transition: background 0.1s;
-}
+.queue-item { padding: 6px var(--sp-3); border-bottom: 1px solid var(--c-border-light); cursor: pointer; display: flex; gap: var(--sp-2); align-items: center; transition: background 0.1s; }
 .queue-item:hover { background: var(--c-accent-light); }
 .queue-item.selected { background: #dbeafe; border-left: 3px solid var(--c-accent); }
+.qi-thumb { width: 64px; height: 40px; object-fit: contain; border-radius: var(--radius-sm); border: 1px solid var(--c-border-light); flex-shrink: 0; background: #fff; }
+.qi-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .queue-item .qi-top { display: flex; align-items: center; gap: var(--sp-1); }
-.queue-item .qi-rid {
-  font-weight: 600; font-size: var(--fs-base); font-family: var(--font-mono);
-  color: var(--c-text);
-}
+.queue-item .qi-rid { font-weight: 600; font-size: var(--fs-base); font-family: var(--font-mono); color: var(--c-text); }
 .queue-item .qi-loc { font-size: var(--fs-xs); color: var(--c-text-muted); margin-left: auto; }
 .queue-item .qi-badges { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
 
 /* ===== Badges ===== */
-.badge {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-size: var(--fs-xs); padding: 1px 6px; border-radius: 3px;
-  font-weight: 500; white-space: nowrap; line-height: 1.4;
-}
+.badge { display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-xs); padding: 1px 6px; border-radius: 3px; font-weight: 500; white-space: nowrap; line-height: 1.4; }
 .badge-unreviewed { background: var(--c-unreviewed-bg); color: var(--c-unreviewed); }
 .badge-in_review { background: var(--c-in-review-bg); color: var(--c-in-review); }
 .badge-confirmed { background: var(--c-confirmed-bg); color: var(--c-confirmed); }
@@ -149,131 +109,134 @@ code, .mono { font-family: var(--font-mono); }
 .badge-icon { font-size: 10px; line-height: 1; }
 
 /* ===== Detail pane ===== */
-.detail-pane {
-  grid-row: 2; overflow-y: auto; padding: var(--sp-4);
-  background: var(--c-surface); scroll-behavior: smooth;
-}
-
-/* Reaction header */
-.rxn-header {
-  display: flex; align-items: center; gap: var(--sp-3);
-  margin-bottom: var(--sp-4); padding-bottom: var(--sp-3);
-  border-bottom: 2px solid var(--c-border-light);
-}
+.detail-pane { grid-row: 2; overflow-y: auto; padding: var(--sp-4); background: var(--c-surface); scroll-behavior: smooth; }
+.rxn-header { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); padding-bottom: var(--sp-3); border-bottom: 2px solid var(--c-border-light); }
 .rxn-header h2 { font-size: var(--fs-xl); font-weight: 700; font-family: var(--font-mono); }
 .rxn-header .rxn-badges { display: flex; gap: var(--sp-1); align-items: center; }
 
-/* Sections */
-.section { margin-bottom: var(--sp-5); }
-.section-title {
-  font-size: var(--fs-md); font-weight: 700; color: #374151;
-  margin-bottom: var(--sp-2); padding-bottom: var(--sp-1);
-  border-bottom: 1px solid var(--c-border-light);
-  display: flex; align-items: center; gap: var(--sp-2);
-}
-.section-title .st-count {
-  font-size: var(--fs-xs); font-weight: 400; color: var(--c-text-muted);
-  background: var(--c-surface-alt); padding: 0 5px; border-radius: 3px;
-}
+/* ===== Reaction hero ===== */
+.rxn-hero { background: var(--c-surface-alt); border: 1px solid var(--c-border-light); border-radius: var(--radius-lg); padding: var(--sp-3); margin-bottom: var(--sp-4); }
+.rxn-hero-canvas { display: flex; align-items: center; gap: var(--sp-4); overflow-x: auto; padding: var(--sp-2) 0; scroll-snap-type: x proximity; position: relative; }
+.rxn-hero-canvas::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 40px; background: linear-gradient(to right, transparent, var(--c-surface-alt)); pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+.rxn-hero-canvas.is-scrollable::after { opacity: 1; }
+.rxn-hero-figure { flex-shrink: 0; text-align: center; }
+.rxn-hero-figure .molecule-img { width: 300px; height: 220px; object-fit: contain; background: #fff; border: 1px solid var(--c-border-light); border-radius: var(--radius-md); cursor: pointer; }
+.rxn-hero-figure .molecule-placeholder { width: 300px; height: 220px; display: flex; align-items: center; justify-content: center; background: var(--c-surface); border: 1px dashed var(--c-border); border-radius: var(--radius-md); color: var(--c-text-muted); font-size: var(--fs-sm); font-style: italic; text-align: center; padding: var(--sp-2); }
+.rxn-hero-figure figcaption { font-size: var(--fs-sm); color: var(--c-text-secondary); margin-top: var(--sp-1); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rxn-hero-plus { font-size: var(--fs-xl); font-weight: 700; color: var(--c-text-secondary); flex-shrink: 0; }
+.rxn-hero-arrow { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: var(--sp-1); min-width: 120px; }
+.rxn-hero-arrow-symbol { font-size: 24px; font-weight: 700; color: var(--c-accent); letter-spacing: -2px; }
+.rxn-hero-summary { font-size: var(--fs-sm); color: var(--c-text-secondary); text-align: center; max-width: 200px; }
+.rxn-hero-additives { display: flex; gap: var(--sp-2); flex-wrap: wrap; justify-content: center; margin-top: var(--sp-1); }
+.rxn-hero-figure-sm { flex-shrink: 0; text-align: center; }
+.rxn-hero-figure-sm .molecule-img { width: 120px; height: 90px; object-fit: contain; background: #fff; border: 1px solid var(--c-border-light); border-radius: var(--radius-sm); cursor: pointer; }
+.rxn-hero-figure-sm figcaption { font-size: var(--fs-xs); color: var(--c-text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rxn-hero-chip { display: inline-block; font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--radius-sm); background: var(--c-surface); border: 1px solid var(--c-border); color: var(--c-text-secondary); }
+.rxn-hero-solvents { display: flex; gap: var(--sp-1); flex-wrap: wrap; justify-content: center; }
+.rxn-hero-yield { font-size: var(--fs-md); font-weight: 700; color: var(--c-confirmed); background: var(--c-confirmed-bg); padding: var(--sp-1) var(--sp-3); border-radius: var(--radius-md); flex-shrink: 0; align-self: center; }
 
-/* Participant cards */
-.participant-group-label {
-  font-size: var(--fs-sm); font-weight: 600; color: var(--c-text-secondary);
-  margin-top: var(--sp-3); margin-bottom: var(--sp-1);
-  text-transform: uppercase; letter-spacing: 0.5px;
-}
-.participant-card {
-  border: 1px solid var(--c-border-light); border-radius: var(--radius-md);
-  padding: var(--sp-3); margin-bottom: var(--sp-2);
-  background: var(--c-surface); transition: border-color 0.15s;
-}
+/* ===== Tabs ===== */
+.tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--c-border-light); margin-bottom: var(--sp-4); }
+.tab-btn { padding: var(--sp-2) var(--sp-4); font-size: var(--fs-base); font-weight: 600; color: var(--c-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; white-space: nowrap; }
+.tab-btn:hover { color: var(--c-accent); }
+.tab-btn.active { color: var(--c-accent); border-bottom-color: var(--c-accent); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ===== Participant grid ===== */
+.participant-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-3); }
+.participant-card { border: 1px solid var(--c-border-light); border-radius: var(--radius-md); background: var(--c-surface); overflow: hidden; transition: border-color 0.15s; }
 .participant-card:hover { border-color: var(--c-border); }
 .participant-card.stale { border-color: var(--c-stale); border-width: 2px; background: var(--c-stale-bg); }
+.pcard-img-wrap { cursor: pointer; background: #fff; text-align: center; padding: var(--sp-2); min-height: 120px; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--c-border-light); }
+.pcard-img-wrap .molecule-img { max-width: 100%; max-height: 240px; object-fit: contain; }
+.pcard-img-wrap .molecule-placeholder { max-width: 100%; min-height: 80px; }
+.pcard-info { padding: var(--sp-3); }
 .pcard-header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-2); }
 .pcard-header .pcard-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pcard-header .pcard-role {
-  font-weight: 700; font-size: var(--fs-base); color: var(--c-text);
-  display: flex; align-items: center; gap: var(--sp-1);
-}
+.pcard-header .pcard-role { font-weight: 700; font-size: var(--fs-base); color: var(--c-text); display: flex; align-items: center; gap: var(--sp-1); }
 .pcard-header .pcard-name { font-size: var(--fs-sm); color: var(--c-text-secondary); }
 .pcard-header .pcard-right { display: flex; gap: var(--sp-1); align-items: center; flex-shrink: 0; }
-.state-badge {
-  font-size: var(--fs-xs); padding: 2px 7px; border-radius: 3px;
-  font-weight: 500; white-space: nowrap;
-}
+.state-badge { font-size: var(--fs-xs); padding: 2px 7px; border-radius: 3px; font-weight: 500; white-space: nowrap; }
 .state-resolved { background: var(--c-confirmed-bg); color: var(--c-confirmed); }
 .state-unresolved { background: var(--c-needs-review-bg); color: var(--c-needs-review); }
 .state-not_attempted { background: #f3f4f6; color: var(--c-text-muted); }
-.stale-badge {
-  background: var(--c-stale); color: #fff; font-size: var(--fs-xs);
-  padding: 2px 7px; border-radius: 3px; font-weight: 500; white-space: nowrap;
-}
+.stale-badge { background: var(--c-stale); color: #fff; font-size: var(--fs-xs); padding: 2px 7px; border-radius: 3px; font-weight: 500; white-space: nowrap; }
+.pcard-details { margin-top: var(--sp-2); font-size: var(--fs-sm); }
+.pcard-details summary { cursor: pointer; color: var(--c-accent); font-size: var(--fs-xs); padding: var(--sp-1) 0; }
+.pcard-details summary:hover { text-decoration: underline; }
+.pcard-meta { display: flex; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--c-text-muted); margin-top: var(--sp-1); flex-wrap: wrap; }
 
-/* Structure image/SVG */
-.pcard-structure { margin-top: var(--sp-2); }
-.pcard-structure img, .pcard-structure svg { max-width: 100%; max-height: 200px; display: block; }
-.pcard-structure .svg-container { max-width: 100%; overflow: hidden; }
-.pcard-structure .svg-container svg { max-width: 100%; height: auto; }
-.pcard-no-render {
-  font-size: var(--fs-sm); color: var(--c-text-muted); padding: var(--sp-2) 0;
-  font-style: italic;
-}
+/* ===== Molecule images ===== */
+.molecule-img { max-width: 100%; object-fit: contain; background: #fff; }
+.molecule-placeholder { display: flex; align-items: center; justify-content: center; min-height: 80px; padding: var(--sp-3); background: var(--c-surface-alt); border: 1px dashed var(--c-border); border-radius: var(--radius-md); color: var(--c-text-muted); font-size: var(--fs-sm); font-style: italic; text-align: center; }
+.molecule-load-error { display: flex; align-items: center; justify-content: center; min-height: 80px; padding: var(--sp-3); background: var(--c-rejected-bg); border: 1px dashed var(--c-error); border-radius: var(--radius-md); color: var(--c-error); font-size: var(--fs-sm); text-align: center; }
 
-/* SMILES */
-.smiles-row {
-  font-family: var(--font-mono); font-size: var(--fs-sm);
-  word-break: break-all; margin: var(--sp-1) 0;
-  display: flex; align-items: flex-start; gap: var(--sp-1);
-}
+/* ===== SMILES ===== */
+.smiles-row { font-family: var(--font-mono); font-size: var(--fs-sm); word-break: break-all; margin: var(--sp-1) 0; display: flex; align-items: flex-start; gap: var(--sp-1); }
 .smiles-row code { flex: 1; background: var(--c-surface-alt); padding: 2px 5px; border-radius: 3px; }
-.smiles-toggle {
-  font-size: var(--fs-xs); color: var(--c-accent); white-space: nowrap;
-  padding: 1px 4px; border-radius: 2px;
-}
-.smiles-toggle:hover { background: var(--c-accent-light); }
-.smiles-copy {
-  font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px;
-  border: 1px solid var(--c-border); color: var(--c-text-secondary);
-  white-space: nowrap;
-}
+.smiles-copy { font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px; border: 1px solid var(--c-border); color: var(--c-text-secondary); white-space: nowrap; }
 .smiles-copy:hover { border-color: var(--c-accent); color: var(--c-accent); }
-.smiles-hidden { display: none; }
 
-/* Issues */
+/* ===== Issues ===== */
 .issues-list { margin-top: var(--sp-1); padding-left: var(--sp-4); }
-.issues-list li {
-  font-size: var(--fs-sm); padding: 1px 0; list-style: disc;
-  display: flex; align-items: baseline; gap: var(--sp-1);
-}
+.issues-list li { font-size: var(--fs-sm); padding: 1px 0; list-style: disc; display: flex; align-items: baseline; gap: var(--sp-1); }
 .issue-error { color: var(--c-error); }
 .issue-warning { color: var(--c-warning); }
 .issue-info { color: var(--c-info); }
+.field-ev-hint { font-size: var(--fs-xs); color: var(--c-warning); margin-top: var(--sp-1); font-style: italic; }
 
-/* Field evidence hint */
-.field-ev-hint {
-  font-size: var(--fs-xs); color: var(--c-warning); margin-top: var(--sp-1);
-  font-style: italic;
-}
-
-/* Stereo section */
-.stereo-section { margin-top: var(--sp-2); padding: var(--sp-2); background: var(--c-surface-alt); border-radius: var(--radius-sm); }
-.stereo-section .stereo-label { font-size: var(--fs-sm); font-weight: 600; margin-bottom: var(--sp-1); }
+/* ===== Stereo ===== */
+.stereo-entry { margin-bottom: var(--sp-5); border: 1px solid var(--c-border-light); border-radius: var(--radius-md); overflow: hidden; }
+.stereo-entry-title { font-size: var(--fs-md); font-weight: 700; padding: var(--sp-2) var(--sp-3); background: var(--c-surface-alt); border-bottom: 1px solid var(--c-border-light); }
+.stereo-entry-body { display: flex; gap: var(--sp-4); padding: var(--sp-3); }
+.stereo-img-area { flex: 1; min-width: 0; }
+.stereo-mode-btns { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-2); flex-wrap: wrap; }
+.stereo-mode-btn { font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; }
+.stereo-mode-btn:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.stereo-mode-btn.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+.stereo-img-container { background: #fff; border: 1px solid var(--c-border-light); border-radius: var(--radius-md); text-align: center; min-height: 200px; display: flex; align-items: center; justify-content: center; }
+.stereo-img-container .molecule-img { max-width: 100%; max-height: 480px; object-fit: contain; }
+.stereo-img-container .stereo-diff-img { display: none; }
+.stereo-img-container .molecule-placeholder { width: 100%; min-height: 200px; }
+.stereo-tables { flex: 0 0 280px; overflow-x: auto; }
 .stereo-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
-.stereo-table th, .stereo-table td { padding: 3px 6px; border: 1px solid var(--c-border-light); text-align: left; }
+.stereo-table th, .stereo-table td { padding: 4px 8px; border: 1px solid var(--c-border-light); text-align: left; }
 .stereo-table th { background: #eef2ff; font-weight: 600; font-size: var(--fs-xs); }
-.stereo-na { font-size: var(--fs-sm); color: var(--c-text-muted); font-style: italic; }
-.stereo-no-centers { font-size: var(--fs-sm); color: var(--c-text-muted); }
+.stereo-unspecified { background: #fef3c7; }
+.stereo-na { font-size: var(--fs-sm); color: var(--c-text-muted); font-style: italic; padding: var(--sp-2); }
+.stereo-no-centers { font-size: var(--fs-sm); color: var(--c-text-muted); padding: var(--sp-2); }
+.stereo-analysis-note { font-size: var(--fs-xs); color: var(--c-text-muted); font-style: italic; margin-top: var(--sp-2); }
 
-/* Conditions table */
+/* ===== Gold ===== */
+.gold-alignment { font-size: var(--fs-sm); color: var(--c-text-secondary); margin-bottom: var(--sp-3); padding: var(--sp-2) var(--sp-3); background: var(--c-gold-bg); border-radius: var(--radius-sm); }
+.gold-pair { margin-bottom: var(--sp-4); border: 1px solid var(--c-gold-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-gold-bg); }
+.gold-pair-figures { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+.gold-figure { text-align: center; }
+.gold-figure figcaption { font-size: var(--fs-sm); font-weight: 600; color: var(--c-text-secondary); margin-bottom: var(--sp-1); }
+.gold-figure .molecule-img { width: 100%; min-height: 240px; object-fit: contain; background: #fff; border: 1px solid var(--c-border-light); border-radius: var(--radius-md); cursor: pointer; }
+.gold-figure .molecule-placeholder { width: 100%; min-height: 240px; }
+.gold-figure .gold-diff-img { display: none; }
+.gold-pair-meta { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; }
+.gold-pair-label { font-size: var(--fs-sm); font-weight: 600; padding: 2px 8px; border-radius: var(--radius-sm); background: #dbeafe; color: #1e40af; }
+.gold-pair-reason { font-size: var(--fs-xs); color: var(--c-text-muted); font-style: italic; }
+.gold-diff-toggle { font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; }
+.gold-diff-toggle:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.gold-diff-toggle.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+.gold-section { background: var(--c-gold-bg); border: 1px solid var(--c-gold-border); border-radius: var(--radius-md); padding: var(--sp-3); margin-top: var(--sp-2); }
+.gold-section .gold-title { font-weight: 700; font-size: var(--fs-base); margin-bottom: var(--sp-2); }
+.gold-section p { font-size: var(--fs-base); margin-bottom: var(--sp-1); }
+.gold-section .gold-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); margin-top: var(--sp-2); }
+.gold-section .gold-table th, .gold-section .gold-table td { padding: 4px 6px; border: 1px solid #e5d89c; text-align: left; }
+.gold-section .gold-table th { background: #fef08a; font-weight: 600; }
+
+/* ===== Conditions ===== */
+.section { margin-bottom: var(--sp-5); }
+.section-title { font-size: var(--fs-md); font-weight: 700; color: #374151; margin-bottom: var(--sp-2); padding-bottom: var(--sp-1); border-bottom: 1px solid var(--c-border-light); display: flex; align-items: center; gap: var(--sp-2); }
+.section-title .st-count { font-size: var(--fs-xs); font-weight: 400; color: var(--c-text-muted); background: var(--c-surface-alt); padding: 0 5px; border-radius: 3px; }
 .cond-table { width: 100%; border-collapse: collapse; font-size: var(--fs-base); table-layout: fixed; }
-.cond-table th, .cond-table td {
-  padding: 5px 8px; border: 1px solid var(--c-border-light); text-align: left;
-  vertical-align: top;
-}
-.cond-table th {
-  background: #f1f5f9; font-weight: 600; font-size: var(--fs-sm);
-  color: #475569; position: sticky; top: 0; z-index: 1;
-}
+.cond-table th, .cond-table td { padding: 5px 8px; border: 1px solid var(--c-border-light); text-align: left; vertical-align: top; }
+.cond-table th { background: #f1f5f9; font-weight: 600; font-size: var(--fs-sm); color: #475569; position: sticky; top: 0; z-index: 1; }
 .cond-table td { font-size: var(--fs-base); }
 .cond-table .col-field { width: 14%; }
 .cond-table .col-value { width: 18%; }
@@ -281,227 +244,101 @@ code, .mono { font-family: var(--font-mono); }
 .cond-table .col-source { width: 12%; }
 .cond-table .col-diff { width: 18%; }
 .cond-table .col-conclusion { width: 20%; }
-.evidence-tag {
-  display: inline-block; font-size: var(--fs-xs); padding: 1px 5px;
-  border-radius: 2px; background: #dbeafe; color: #1e40af;
-}
-.legacy-tag {
-  display: inline-block; font-size: var(--fs-xs); padding: 1px 5px;
-  border-radius: 2px; background: var(--c-pending-bg); color: var(--c-pending);
-}
+.evidence-tag { display: inline-block; font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px; background: #dbeafe; color: #1e40af; }
+.legacy-tag { display: inline-block; font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px; background: var(--c-pending-bg); color: var(--c-pending); }
 
-/* Gold section */
-.gold-section {
-  background: var(--c-gold-bg); border: 1px solid var(--c-gold-border);
-  border-radius: var(--radius-md); padding: var(--sp-3); margin-top: var(--sp-2);
-}
-.gold-section .gold-title { font-weight: 700; font-size: var(--fs-base); margin-bottom: var(--sp-2); }
-.gold-section p { font-size: var(--fs-base); margin-bottom: var(--sp-1); }
-.gold-section .gold-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); margin-top: var(--sp-2); }
-.gold-section .gold-table th, .gold-section .gold-table td {
-  padding: 4px 6px; border: 1px solid #e5d89c; text-align: left;
-}
-.gold-section .gold-table th { background: #fef08a; font-weight: 600; }
-
-/* Action buttons */
-.target-actions {
-  display: flex; gap: var(--sp-1); margin-top: var(--sp-2); flex-wrap: wrap; align-items: center;
-}
-.target-actions .act-btn {
-  font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--radius-sm);
-  border: 1px solid var(--c-border); background: var(--c-surface);
-  color: var(--c-text-secondary); transition: all 0.12s; font-weight: 500;
-}
+/* ===== Action buttons ===== */
+.target-actions { display: flex; gap: var(--sp-1); margin-top: var(--sp-2); flex-wrap: wrap; align-items: center; }
+.target-actions .act-btn { font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; font-weight: 500; }
 .target-actions .act-btn:hover { border-color: var(--c-accent); color: var(--c-accent); }
-.target-actions .act-btn.active-confirm {
-  background: var(--c-confirmed-bg); color: var(--c-confirmed); border-color: var(--c-confirmed);
-}
-.target-actions .act-btn.active-pending {
-  background: var(--c-pending-bg); color: var(--c-pending); border-color: var(--c-pending);
-}
-.target-actions .act-btn.active-na {
-  background: #f3f4f6; color: var(--c-text-muted); border-color: #d1d5db;
-}
-.target-actions .act-btn.active-reject {
-  background: var(--c-rejected-bg); color: var(--c-rejected); border-color: var(--c-rejected);
-}
-.reason-input {
-  font-size: var(--fs-xs); padding: 2px 6px; border: 1px solid var(--c-border);
-  border-radius: var(--radius-sm); width: 180px; display: none;
-}
+.target-actions .act-btn.active-confirm { background: var(--c-confirmed-bg); color: var(--c-confirmed); border-color: var(--c-confirmed); }
+.target-actions .act-btn.active-pending { background: var(--c-pending-bg); color: var(--c-pending); border-color: var(--c-pending); }
+.target-actions .act-btn.active-na { background: #f3f4f6; color: var(--c-text-muted); border-color: #d1d5db; }
+.target-actions .act-btn.active-reject { background: var(--c-rejected-bg); color: var(--c-rejected); border-color: var(--c-rejected); }
+.target-actions .act-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--c-border-light); color: var(--c-text-muted); }
+.reason-input { font-size: var(--fs-xs); padding: 2px 6px; border: 1px solid var(--c-border); border-radius: var(--radius-sm); width: 180px; display: none; }
 .reason-input.visible { display: inline-block; }
 .reason-input:invalid { border-color: var(--c-error); }
-.revise-input {
-  font-size: var(--fs-xs); padding: 2px 6px; border: 1px solid var(--c-accent);
-  border-radius: var(--radius-sm); width: 220px; font-family: var(--font-mono);
-}
-.target-actions .act-btn:disabled {
-  opacity: 0.4; cursor: not-allowed; border-color: var(--c-border-light);
-  color: var(--c-text-muted);
-}
+.revise-input { font-size: var(--fs-xs); padding: 2px 6px; border: 1px solid var(--c-accent); border-radius: var(--radius-sm); width: 220px; font-family: var(--font-mono); }
 
-/* ===== Evidence pane ===== */
-.evidence-pane {
-  grid-row: 2; background: var(--c-surface-alt); border-left: 1px solid var(--c-border);
-  display: flex; flex-direction: column; overflow: hidden;
-}
-.ev-header {
-  padding: var(--sp-2) var(--sp-3); font-weight: 700; font-size: var(--fs-base);
-  border-bottom: 1px solid var(--c-border-light); color: #374151;
-  display: flex; align-items: center; gap: var(--sp-2);
-}
+/* ===== Evidence drawer ===== */
+.evidence-pane { display: none; position: fixed; right: 0; top: 44px; bottom: 40px; width: 360px; z-index: 30; box-shadow: -4px 0 16px rgba(0,0,0,0.12); border-left: 1px solid var(--c-border); background: var(--c-surface-alt); flex-direction: column; overflow: hidden; }
+.evidence-pane.drawer-open { display: flex; }
+.ev-header { padding: var(--sp-2) var(--sp-3); font-weight: 700; font-size: var(--fs-base); border-bottom: 1px solid var(--c-border-light); color: #374151; display: flex; align-items: center; gap: var(--sp-2); }
 .ev-header .ev-count { font-weight: 400; color: var(--c-text-muted); font-size: var(--fs-xs); }
 .ev-list { flex: 1; overflow-y: auto; }
-.ev-item {
-  padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--c-border-light);
-  cursor: pointer; transition: background 0.1s;
-}
+.ev-item { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--c-border-light); cursor: pointer; transition: background 0.1s; }
 .ev-item:hover { background: #e0e7ff; }
 .ev-item.highlighted { background: #c7d2fe; border-left: 3px solid var(--c-accent); }
 .ev-item .ev-meta { display: flex; align-items: center; gap: var(--sp-1); margin-bottom: 2px; }
-.ev-item .ev-kind {
-  font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px;
-  background: #dbeafe; color: #1e40af; font-weight: 500;
-}
+.ev-item .ev-kind { font-size: var(--fs-xs); padding: 1px 5px; border-radius: 2px; background: #dbeafe; color: #1e40af; font-weight: 500; }
 .ev-item .ev-page { font-size: var(--fs-xs); color: var(--c-text-muted); }
-.ev-item .ev-text {
-  font-size: var(--fs-sm); color: var(--c-text); max-height: 72px;
-  overflow: hidden; line-height: 1.4; word-break: break-word;
-}
-.ev-item .ev-asset {
-  font-size: var(--fs-xs); color: var(--c-text-muted); margin-top: 2px;
-  word-break: break-all;
-}
-.ev-item .ev-asset img {
-  max-width: 100%; max-height: 180px; margin-top: var(--sp-1);
-  border: 1px solid var(--c-border-light); border-radius: var(--radius-sm);
-}
-.ev-missing {
-  padding: var(--sp-3); color: var(--c-error); font-size: var(--fs-sm);
-  background: var(--c-rejected-bg); margin: var(--sp-2); border-radius: var(--radius-sm);
-}
-.ev-ref-only {
-  padding: var(--sp-3); color: var(--c-warning); font-size: var(--fs-sm);
-  background: var(--c-pending-bg); margin: var(--sp-2); border-radius: var(--radius-sm);
-}
-.ev-empty {
-  padding: var(--sp-4); text-align: center; color: var(--c-text-muted);
-  font-size: var(--fs-sm); font-style: italic;
-}
+.ev-item .ev-text { font-size: var(--fs-sm); color: var(--c-text); max-height: 72px; overflow: hidden; line-height: 1.4; word-break: break-word; }
+.ev-item .ev-asset { font-size: var(--fs-xs); color: var(--c-text-muted); margin-top: 2px; word-break: break-all; }
+.ev-item .ev-asset img { max-width: 100%; max-height: 180px; margin-top: var(--sp-1); border: 1px solid var(--c-border-light); border-radius: var(--radius-sm); }
+.ev-missing { padding: var(--sp-3); color: var(--c-error); font-size: var(--fs-sm); background: var(--c-rejected-bg); margin: var(--sp-2); border-radius: var(--radius-sm); }
+.ev-ref-only { padding: var(--sp-3); color: var(--c-warning); font-size: var(--fs-sm); background: var(--c-pending-bg); margin: var(--sp-2); border-radius: var(--radius-sm); }
+.ev-empty { padding: var(--sp-4); text-align: center; color: var(--c-text-muted); font-size: var(--fs-sm); font-style: italic; }
 
 /* ===== Footer ===== */
-.footer {
-  grid-column: 1 / -1; display: flex; align-items: center;
-  gap: var(--sp-3); padding: 0 var(--sp-4);
-  background: #f8fafc; border-top: 1px solid var(--c-border);
-  font-size: var(--fs-sm); color: var(--c-text-secondary);
-}
+.footer { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--sp-3); padding: 0 var(--sp-4); background: #f8fafc; border-top: 1px solid var(--c-border); font-size: var(--fs-sm); color: var(--c-text-secondary); }
 .footer .footer-nav { display: flex; gap: var(--sp-1); }
-.footer .footer-btn {
-  padding: 3px 10px; font-size: var(--fs-xs); border-radius: var(--radius-sm);
-  border: 1px solid var(--c-border); background: var(--c-surface);
-  color: var(--c-text-secondary); transition: all 0.12s;
-}
+.footer .footer-btn { padding: 3px 10px; font-size: var(--fs-xs); border-radius: var(--radius-sm); border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-secondary); transition: all 0.12s; }
 .footer .footer-btn:hover { border-color: var(--c-accent); color: var(--c-accent); }
 .footer .footer-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.footer .footer-btn.primary {
-  background: var(--c-accent); color: #fff; border-color: var(--c-accent);
-}
+.footer .footer-btn.primary { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
 .footer .footer-btn.primary:hover { background: var(--c-accent-hover); }
-.footer .footer-btn.export {
-  background: #059669; color: #fff; border-color: #059669;
-}
+.footer .footer-btn.export { background: #059669; color: #fff; border-color: #059669; }
 .footer .footer-btn.export:hover { background: #047857; }
 .footer .footer-spacer { flex: 1; }
 .footer .pending-summary { font-size: var(--fs-xs); color: var(--c-text-muted); }
 .footer .pending-count { font-weight: 700; color: var(--c-accent); }
 
+/* ===== Lightbox ===== */
+.lightbox-overlay { display: none; position: fixed; inset: 0; z-index: 100; align-items: center; justify-content: center; }
+.lightbox-overlay.active { display: flex; }
+.lightbox-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.8); }
+.lightbox-img { position: relative; max-width: 90vw; max-height: 85vh; object-fit: contain; z-index: 1; }
+.lightbox-close { position: absolute; top: 16px; right: 16px; z-index: 2; font-size: 32px; color: #fff; background: rgba(0,0,0,0.5); border: none; cursor: pointer; width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.lightbox-close:hover { background: rgba(0,0,0,0.7); }
+
 /* ===== Empty states ===== */
-.empty-state {
-  padding: var(--sp-6); text-align: center; color: var(--c-text-muted);
-}
+.empty-state { padding: var(--sp-6); text-align: center; color: var(--c-text-muted); }
 .empty-state .es-title { font-size: var(--fs-lg); font-weight: 600; margin-bottom: var(--sp-2); color: var(--c-text-secondary); }
 .empty-state .es-desc { font-size: var(--fs-base); max-width: 360px; margin: 0 auto; line-height: 1.6; }
 .empty-state .es-icon { font-size: 32px; margin-bottom: var(--sp-2); color: var(--c-text-muted); }
+.legacy-banner { background: var(--c-pending-bg); border: 1px solid var(--c-gold-border); border-radius: var(--radius-md); padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); font-size: var(--fs-sm); color: #92400e; display: flex; align-items: center; gap: var(--sp-2); }
+.authoritative-note { font-size: var(--fs-xs); color: var(--c-text-muted); font-style: italic; padding: var(--sp-1) 0; }
 
-/* Legacy banner */
-.legacy-banner {
-  background: var(--c-pending-bg); border: 1px solid var(--c-gold-border);
-  border-radius: var(--radius-md); padding: var(--sp-2) var(--sp-3);
-  margin-bottom: var(--sp-3); font-size: var(--fs-sm); color: #92400e;
-  display: flex; align-items: center; gap: var(--sp-2);
-}
-
-/* Authoritative note */
-.authoritative-note {
-  font-size: var(--fs-xs); color: var(--c-text-muted); font-style: italic;
-  padding: var(--sp-1) 0;
-}
-
-/* ===== Responsive: collapse evidence ===== */
-.drawer-toggle { display: none; }
-@media (max-width: 1100px) {
-  .app { grid-template-columns: minmax(180px, 22%) 1fr; }
-  .evidence-pane {
-    display: none; position: fixed; right: 0; top: 44px; bottom: 40px;
-    width: 320px; z-index: 30; box-shadow: -4px 0 16px rgba(0,0,0,0.12);
-    border-left: 1px solid var(--c-border);
-  }
-  .evidence-pane.drawer-open { display: flex; }
-  .drawer-toggle { display: inline-flex; }
-}
-@media (max-width: 700px) {
-  .app { grid-template-columns: 1fr; }
-  .queue-pane {
-    position: fixed; left: 0; top: 44px; bottom: 40px; width: 280px;
-    z-index: 20; box-shadow: 4px 0 16px rgba(0,0,0,0.12);
-    transform: translateX(-100%); transition: transform 0.2s;
-  }
-  .queue-pane.mobile-open { transform: translateX(0); }
-  .mobile-queue-toggle { display: inline-flex; }
-}
-
-/* ===== Scrollbar ===== */
+/* ===== Responsive ===== */
+@media (max-width: 1100px) { .app { grid-template-columns: 220px 1fr; } .stereo-entry-body { flex-direction: column; } .stereo-tables { flex: none; } }
+@media (max-width: 700px) { .app { grid-template-columns: 1fr; } .queue-pane { position: fixed; left: 0; top: 44px; bottom: 40px; width: 280px; z-index: 20; box-shadow: 4px 0 16px rgba(0,0,0,0.12); transform: translateX(-100%); transition: transform 0.2s; } .queue-pane.mobile-open { transform: translateX(0); } .mobile-queue-toggle { display: inline-flex !important; } .participant-grid { grid-template-columns: 1fr; } .gold-pair-figures { grid-template-columns: 1fr; } }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #c1c7d0; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-
-/* ===== SVG icon sizing ===== */
-.icon-svg { width: 13px; height: 13px; fill: currentColor; vertical-align: -2px; }
-.icon-svg-sm { width: 11px; height: 11px; fill: currentColor; vertical-align: -1px; }
 </style>
 </head>
 <body>
 <div class="app">
 
-  <!-- ===== HEADER ===== -->
+  <!-- HEADER -->
   <div class="header" role="banner">
-    <div class="title-area">
-      <h1 id="header-title">ChemEx-Lit Review</h1>
-    </div>
+    <div class="title-area"><h1 id="header-title">ChemEx-Lit Review</h1></div>
     <div class="meta-chips" id="header-meta">
-      <span class="meta-chip" id="chip-version">
-        <span class="chip-label">数据版本</span>
-        <span id="data-version">--</span>
-      </span>
-      <span class="meta-chip" id="chip-progress">
-        <span class="chip-label">审核进度</span>
-        <span id="review-progress">0/0</span>
-      </span>
-      <span class="meta-chip" id="chip-gold">
-        <span class="chip-label">金标</span>
-        <span id="gold-version">未提供金标</span>
-      </span>
+      <span class="meta-chip" id="chip-version"><span class="chip-label">数据版本</span> <span id="data-version">--</span></span>
+      <span class="meta-chip" id="chip-progress"><span class="chip-label">审核进度</span> <span id="review-progress">0/0</span></span>
+      <span class="meta-chip" id="chip-gold"><span class="chip-label">金标</span> <span id="gold-version">未提供金标</span></span>
     </div>
     <div class="actions-group">
       <button class="btn-header" id="btn-import" aria-label="导入草稿">导入草稿</button>
       <button class="btn-header btn-primary" id="btn-export-header" aria-label="导出审核包">导出审核包</button>
-      <button class="btn-header drawer-toggle" id="btn-toggle-evidence" aria-label="切换证据面板">证据</button>
+      <button class="btn-header" id="btn-toggle-evidence" aria-label="切换证据面板">证据</button>
+      <button class="btn-header mobile-queue-toggle" id="btn-toggle-queue" aria-label="切换队列" style="display:none">队列</button>
     </div>
   </div>
 
-  <!-- ===== QUEUE PANE ===== -->
+  <!-- QUEUE PANE -->
   <div class="queue-pane" id="queue-pane" role="navigation" aria-label="反应队列">
     <div class="queue-toolbar">
       <input type="text" class="queue-search" id="queue-search" placeholder="搜索反应编号/标签/名称/位置…" aria-label="搜索反应">
@@ -516,33 +353,34 @@ code, .mono { font-family: var(--font-mono); }
     <div class="queue-count" id="queue-count" aria-live="polite">{{ view.record_count }} 条反应</div>
     <div class="list queue-list" id="queue-list" role="listbox" aria-label="反应列表">
       {% for rxn in view.reactions %}
-      <div class="queue-item{% if loop.first %} selected{% endif %}"
-           role="option" aria-selected="{% if loop.first %}true{% else %}false{% endif %}"
-           data-idx="{{ rxn.position }}" data-rid="{{ rxn.reaction_id }}"
-           data-human="{{ rxn.human_status }}" data-machine="{{ rxn.machine_status }}"
-           data-has-gold="{{ 'true' if rxn.gold.has_gold else 'false' }}"
-           data-search="{{ rxn.reaction_id }} {{ rxn.participants | map(attribute='label') | join(' ') }} {{ rxn.participants | map(attribute='name') | join(' ') }}">
-        <div class="qi-top">
-          <span class="qi-rid">{{ rxn.reaction_id }}</span>
-          <span class="qi-loc">#{{ rxn.position + 1 }}</span>
-        </div>
-        <div class="qi-badges">
-          <span class="badge badge-{{ rxn.human_status }}" aria-label="人工审核: {{ rxn.human_status }}">
-            <span class="badge-icon" aria-hidden="true">{% if rxn.human_status == 'confirmed' %}&#10003;{% elif rxn.human_status == 'rejected' %}&times;{% elif rxn.human_status == 'pending' %}!{% elif rxn.human_status == 'in_review' %}&hellip;{% else %}&mdash;{% endif %}</span>
-            {{ rxn.human_status }}
-          </span>
-          <span class="badge badge-{{ rxn.machine_status }}" aria-label="机器校验: {{ rxn.machine_status }}">
-            <span class="badge-icon" aria-hidden="true">{% if rxn.machine_status == 'clean' %}&#10003;{% else %}&#9888;{% endif %}</span>
-            {{ rxn.machine_status }}
-          </span>
-          {% if rxn.gold.has_gold %}<span class="badge badge-gold" aria-label="有金标">gold</span>{% endif %}
+      {% set first_prod = rxn.participants | selectattr('role', 'equalto', 'product') | first %}
+      <div class="queue-item{% if loop.first %} selected{% endif %}" role="option" aria-selected="{% if loop.first %}true{% else %}false{% endif %}" data-idx="{{ rxn.position }}" data-rid="{{ rxn.reaction_id }}" data-human="{{ rxn.human_status }}" data-machine="{{ rxn.machine_status }}" data-has-gold="{{ 'true' if rxn.gold.has_gold else 'false' }}" data-search="{{ rxn.reaction_id }} {{ rxn.participants | map(attribute='label') | join(' ') }} {{ rxn.participants | map(attribute='name') | join(' ') }}">
+        {% if first_prod and first_prod.images and first_prod.images.normal and first_prod.images.normal.png %}
+        <img class="qi-thumb" src="{{ first_prod.images.normal.png }}" alt="" loading="lazy">
+        {% endif %}
+        <div class="qi-content">
+          <div class="qi-top">
+            <span class="qi-rid">{{ rxn.reaction_id }}</span>
+            <span class="qi-loc">#{{ rxn.position + 1 }}</span>
+          </div>
+          <div class="qi-badges">
+            <span class="badge badge-{{ rxn.human_status }}" title="人工审核: {{ rxn.human_status }}">
+              <span class="badge-icon" aria-hidden="true">{% if rxn.human_status == 'confirmed' %}&#10003;{% elif rxn.human_status == 'rejected' %}&times;{% elif rxn.human_status == 'pending' %}!{% elif rxn.human_status == 'in_review' %}&hellip;{% else %}&mdash;{% endif %}</span>
+              {{ human_label(rxn.human_status) }}
+            </span>
+            <span class="badge badge-{{ rxn.machine_status }}" title="机器校验: {{ rxn.machine_status }}">
+              <span class="badge-icon" aria-hidden="true">{% if rxn.machine_status == 'clean' %}&#10003;{% else %}&#9888;{% endif %}</span>
+              {{ machine_label(rxn.machine_status) }}
+            </span>
+            {% if rxn.gold.has_gold %}<span class="badge badge-gold" aria-label="有金标">gold</span>{% endif %}
+          </div>
         </div>
       </div>
       {% endfor %}
     </div>
   </div>
 
-  <!-- ===== DETAIL PANE ===== -->
+  <!-- DETAIL PANE -->
   <div class="detail-pane" id="detail-pane" role="main" aria-label="反应详情">
     {% if view.record_count == 0 %}
     <div class="empty-state">
@@ -552,189 +390,243 @@ code, .mono { font-family: var(--font-mono); }
     </div>
     {% else %}
     {% for rxn in view.reactions %}
+    {% set is_first_rxn = loop.first %}
     <div class="reaction-detail" data-idx="{{ rxn.position }}" style="{% if not loop.first %}display:none{% endif %}">
 
-      <!-- Reaction header -->
       <div class="rxn-header">
         <h2>{{ rxn.reaction_id }}</h2>
         <div class="rxn-badges">
-          <span class="badge badge-{{ rxn.human_status }}">{{ rxn.human_status }}</span>
-          <span class="badge badge-{{ rxn.machine_status }}">{{ rxn.machine_status }}</span>
+          <span class="badge badge-{{ rxn.human_status }}" title="{{ rxn.human_status }}">{{ human_label(rxn.human_status) }}</span>
+          <span class="badge badge-{{ rxn.machine_status }}" title="{{ rxn.machine_status }}">{{ machine_label(rxn.machine_status) }}</span>
         </div>
         <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">位置 #{{ rxn.position + 1 }}</span>
       </div>
 
-      <!-- Context note / legacy banner -->
       {% if rxn.context_note %}
-      <div class="legacy-banner" role="note">
-        <span aria-hidden="true">[!]</span>
-        <span>{{ rxn.context_note }}</span>
-      </div>
+      <div class="legacy-banner" role="note"><span aria-hidden="true">[!]</span> <span>{{ rxn.context_note }}</span></div>
       {% endif %}
 
-      <!-- Structures -->
-      <div class="section">
-        <div class="section-title">
-          参与物结构
-          {% if rxn.participants %}<span class="st-count">{{ rxn.participants | length }}</span>{% endif %}
+      <!-- Reaction overview hero -->
+      <div class="rxn-hero">
+        <div class="rxn-hero-canvas" id="hero-canvas-{{ rxn.position }}">
+          {% set hero_reactants = rxn.participants | selectattr('role', 'equalto', 'reactant') | list %}
+          {% for p in hero_reactants %}
+            {% if not loop.first %}<span class="rxn-hero-plus" aria-hidden="true">+</span>{% endif %}
+            <figure class="rxn-hero-figure">
+              {% if p.render_status == 'ok' and p.images and p.images.normal %}
+                {{ mol_img(p.images.normal, (p.label or p.name or '底物') ~ ' 结构图', '', not is_first_rxn) }}
+              {% else %}
+                <div class="molecule-placeholder">{{ render_msg(p.render_status) }}</div>
+              {% endif %}
+              <figcaption>{{ p.label or p.name or '底物' }}</figcaption>
+            </figure>
+          {% endfor %}
+
+          <div class="rxn-hero-arrow">
+            <span class="rxn-hero-arrow-symbol" aria-hidden="true">——→</span>
+            {% if rxn.condition_summary is defined and rxn.condition_summary %}
+            <div class="rxn-hero-summary">{{ rxn.condition_summary }}</div>
+            {% endif %}
+          </div>
+
+          {% set hero_products = rxn.participants | selectattr('role', 'equalto', 'product') | list %}
+          {% for p in hero_products %}
+            {% if not loop.first %}<span class="rxn-hero-plus" aria-hidden="true">+</span>{% endif %}
+            <figure class="rxn-hero-figure">
+              {% if p.render_status == 'ok' and p.images and p.images.normal %}
+                {{ mol_img(p.images.normal, (p.label or p.name or '产物') ~ ' 结构图', '', not is_first_rxn) }}
+              {% else %}
+                <div class="molecule-placeholder">{{ render_msg(p.render_status) }}</div>
+              {% endif %}
+              <figcaption>{{ p.label or p.name or '产物' }}</figcaption>
+            </figure>
+            {% if loop.last and rxn.yield_pct is not none %}<span class="rxn-hero-yield">收率 {{ rxn.yield_pct }}%</span>{% endif %}
+          {% endfor %}
         </div>
-        {% if not rxn.participants %}
-        <div class="empty-state" style="padding:var(--sp-4)">
-          <div class="es-title">结构未解析</div>
-          <div class="es-desc">未能提取到参与物结构信息。</div>
-        </div>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="tab-bar" role="tablist">
+        <button class="tab-btn active" data-tab="participants" role="tab" aria-selected="true">底物与产物</button>
+        <button class="tab-btn" data-tab="stereo" role="tab" aria-selected="false">立体化学</button>
+        <button class="tab-btn" data-tab="gold" role="tab" aria-selected="false">金标比对</button>
+        <button class="tab-btn" data-tab="conditions" role="tab" aria-selected="false">条件</button>
+      </div>
+
+      <!-- Tab: 参与物结构 -->
+      <div class="tab-panel active" data-tab="participants" role="tabpanel">
+        {% if not rxn.structure_participants %}
+        <div class="empty-state" style="padding:var(--sp-4)"><div class="es-title">结构未解析</div><div class="es-desc">未能提取到参与物结构信息。</div></div>
         {% else %}
-        {# Group participants by role #}
-        {% set role_order = [('reactant', '底物'), ('product', '产物'), ('reagent', '添加剂·催化剂·配体'), ('solvent', '溶剂')] %}
-        {% for role_key, role_label in role_order %}
-          {% set group = rxn.participants | selectattr('role', 'equalto', role_key) | list %}
-          {% if group %}
-          <div class="participant-group-label">{{ role_label }}</div>
-          {% for p in group %}
+        <div class="participant-grid">
+          {% for p in rxn.structure_participants %}
           <div class="participant-card{% if p.stale_image %} stale{% endif %}" data-pid="{{ p.participant_id }}" data-evidence-ids="{{ p.evidence_ids | join(',') }}">
-            <div class="pcard-header">
-              <div class="pcard-left">
-                <div class="pcard-role">
-                  {{ p.label or p.name or '未标记' }}
-                  {% if p.structure_state in ('unresolved', 'not_attempted') %}
-                  <span class="badge badge-needs_review" style="font-size:var(--fs-xs)">结构未解析</span>
-                  {% endif %}
-                </div>
-                {% if p.name and p.label and p.name != p.label %}
-                <div class="pcard-name">{{ p.name }}</div>
-                {% endif %}
-                <div style="font-size:var(--fs-xs);color:var(--c-text-muted)">
-                  <span class="mono">{{ p.participant_id }}</span>
-                </div>
-              </div>
-              <div class="pcard-right">
-                <span class="state-badge state-{{ p.structure_state }}" aria-label="结构状态: {{ p.structure_state }}">{{ p.structure_state }}</span>
-                {% if p.stale_image %}<span class="stale-badge" aria-label="旧图，修订尚未验证">旧图，修订尚未验证</span>{% endif %}
-              </div>
-            </div>
-
-            <!-- SMILES -->
-            {% if p.smiles %}
-            <div class="smiles-row">
-              <code id="smiles-{{ p.participant_id }}">{{ p.smiles }}</code>
-              <button class="smiles-toggle" onclick="toggleSmiles(this)" aria-label="展开/折叠SMILES">展开</button>
-              <button class="smiles-copy" onclick="copySmiles('{{ p.participant_id }}')" aria-label="复制SMILES">复制</button>
-            </div>
-            {% endif %}
-
-            <!-- Structure image/SVG -->
-            <div class="pcard-structure">
-              {% if p.svg %}
-              <div class="svg-container">{{ p.svg }}</div>
-              {% elif p.image %}
-              <img src="{{ p.image }}" alt="{{ p.label or p.role }} 结构图" loading="lazy">
+            <div class="pcard-img-wrap">
+              {% if p.render_status == 'ok' and p.images and p.images.normal %}
+                {{ mol_img(p.images.normal, (p.label or p.name or p.role) ~ ' 结构图', '', true) }}
               {% else %}
-              <div class="pcard-no-render">渲染/比较不可用</div>
+                <div class="molecule-placeholder">{{ render_msg(p.render_status) }}</div>
               {% endif %}
             </div>
-
-            <!-- Machine issues -->
-            {% if p.machine_issues %}
-            <ul class="issues-list" aria-label="机器校验问题">
-              {% for issue in p.machine_issues %}
-              <li class="issue-{{ issue.severity }}">
-                <span class="mono" style="font-weight:600">{{ issue.code }}</span>
-                <span>{{ issue.message }}</span>
-              </li>
-              {% endfor %}
-            </ul>
-            {% endif %}
-
-            <!-- Field evidence hint -->
-            {% if not p.has_field_evidence %}
-            <div class="field-ev-hint" aria-label="仅反应级参考">reaction-level reference only</div>
-            {% endif %}
-
-            <!-- Stereo (reactant/product only) -->
-            {% if p.role in ('reactant', 'product') %}
-            <div class="stereo-section">
-              <div class="stereo-label">立体化学</div>
-              {% if not p.stereo.rdkit_available %}
-              <div class="stereo-na">{{ p.stereo.analysis_note or '渲染/比较不可用' }}</div>
-              {% else %}
-                {% if p.stereo.centers %}
-                <table class="stereo-table" aria-label="立体中心">
-                  <thead><tr><th>原子</th><th>构型</th><th>指定</th></tr></thead>
-                  <tbody>
-                  {% for c in p.stereo.centers %}
-                  <tr><td class="mono">{{ c.atom_index }}</td><td>{{ c.assignment or '?' }}</td><td>{{ '是' if c.specified else '否' }}</td></tr>
-                  {% endfor %}
-                  </tbody>
-                </table>
-                {% else %}
-                <div class="stereo-no-centers">未检测到立体中心</div>
+            <div class="pcard-info">
+              <div class="pcard-header">
+                <div class="pcard-left">
+                  <div class="pcard-role">
+                    {{ p.label or p.name or '未标记' }}
+                    {% if p.structure_state in ('unresolved', 'not_attempted') %}<span class="badge badge-needs_review" style="font-size:var(--fs-xs)">结构未解析</span>{% endif %}
+                  </div>
+                  {% if p.name and p.label and p.name != p.label %}<div class="pcard-name">{{ p.name }}</div>{% endif %}
+                </div>
+                <div class="pcard-right">
+                  <span class="state-badge state-{{ p.structure_state }}" title="结构状态: {{ p.structure_state }}">{{ state_label(p.structure_state) }}</span>
+                  {% if p.stale_image %}<span class="stale-badge" aria-label="旧图，修订尚未验证">旧图，修订尚未验证</span>{% endif %}
+                </div>
+              </div>
+              <details class="pcard-details">
+                <summary>技术详情</summary>
+                {% if p.smiles %}
+                <div class="smiles-row">
+                  <code id="smiles-{{ p.participant_id }}">{{ p.smiles }}</code>
+                  <button class="smiles-copy" onclick="copySmiles('{{ p.participant_id }}')" aria-label="复制SMILES">复制</button>
+                </div>
                 {% endif %}
-                {% if p.stereo.bonds %}
-                <table class="stereo-table" style="margin-top:var(--sp-1)" aria-label="立体键">
-                  <thead><tr><th>键</th><th>构型</th><th>指定</th></tr></thead>
-                  <tbody>
-                  {% for b in p.stereo.bonds %}
-                  <tr><td class="mono">{{ b.begin_atom }}-{{ b.end_atom }}</td><td>{{ b.assignment or '?' }}</td><td>{{ '是' if b.specified else '否' }}</td></tr>
-                  {% endfor %}
-                  </tbody>
-                </table>
+                <div class="pcard-meta">
+                  <span class="mono" title="参与物ID">{{ p.participant_id }}</span>
+                  <span title="角色">{{ p.role }}</span>
+                  {% if p.field_path %}<span class="mono" title="字段路径">{{ p.field_path }}</span>{% endif %}
+                </div>
+                {% if p.machine_issues %}
+                <ul class="issues-list" aria-label="机器校验问题" style="margin-top:var(--sp-1)">
+                  {% for issue in p.machine_issues %}<li class="issue-{{ issue.severity }}"><span class="mono" style="font-weight:600">{{ issue.code }}</span> <span>{{ issue.message }}</span></li>{% endfor %}
+                </ul>
                 {% endif %}
-              {% endif %}
-            </div>
-            {% endif %}
-
-            <!-- Action buttons per participant -->
-            <div class="target-actions" data-target-kind="participant_identity" data-target-id="{{ p.participant_id }}" data-field-path="{{ p.field_path or '' }}" data-old-value="{{ p.smiles or '' }}">
-              <button class="act-btn" data-op="confirm" aria-label="确认参与物 {{ p.label or p.name }}">确认</button>
-              <button class="act-btn" data-op="revise" {% if not p.field_path %}disabled title="该目标不支持在线修订"{% endif %} aria-label="修订参与物 {{ p.label or p.name }}">修订</button>
-              <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 {{ p.label or p.name }}">待定</button>
-              <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 {{ p.label or p.name }}">不适用</button>
-              <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
-              <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+                {% if not p.has_field_evidence %}<div class="field-ev-hint" aria-label="仅反应级参考">reaction-level reference only</div>{% endif %}
+              </details>
+              <div class="target-actions" data-target-kind="participant_identity" data-target-id="{{ p.participant_id }}" data-field-path="{{ p.field_path or '' }}" data-old-value="{{ p.smiles or '' }}">
+                <button class="act-btn" data-op="confirm" aria-label="确认参与物 {{ p.label or p.name }}">确认</button>
+                <button class="act-btn" data-op="revise" {% if not p.field_path %}disabled title="该目标不支持在线修订"{% endif %} aria-label="修订参与物 {{ p.label or p.name }}">修订</button>
+                <button class="act-btn" data-op="mark_pending" aria-label="待定参与物 {{ p.label or p.name }}">待定</button>
+                <button class="act-btn" data-op="mark_not_applicable" aria-label="不适用参与物 {{ p.label or p.name }}">不适用</button>
+                <input class="reason-input" type="text" placeholder="理由（待定/不适用必填）" aria-label="审核理由">
+                <input class="revise-input" type="text" placeholder="新SMILES" style="display:none" aria-label="修订SMILES">
+              </div>
             </div>
           </div>
           {% endfor %}
-          {% endif %}
-        {% endfor %}
+        </div>
         {% endif %}
       </div>
 
-      <!-- Conditions -->
-      <div class="section">
-        <div class="section-title">
-          反应条件
-          {% if rxn.conditions %}<span class="st-count">{{ rxn.conditions | length }}</span>{% endif %}
-        </div>
+      <!-- Tab: 立体化学 -->
+      <div class="tab-panel" data-tab="stereo" role="tabpanel">
+        {% for p in rxn.structure_participants %}
+          {% if p.role in ('reactant', 'product') %}
+          <div class="stereo-entry" data-pid="{{ p.participant_id }}">
+            <div class="stereo-entry-title">{{ p.label or p.name or p.role }}</div>
+            <div class="stereo-entry-body">
+              <div class="stereo-img-area">
+                <div class="stereo-mode-btns" data-pid="{{ p.participant_id }}">
+                  {% if p.images and p.images.normal %}<button class="stereo-mode-btn active" data-mode="normal">普通图</button>{% endif %}
+                  {% if p.images and p.images.stereo %}<button class="stereo-mode-btn" data-mode="stereo">立体标注图</button>{% endif %}
+                  {% if p.images and p.images.atommap %}<button class="stereo-mode-btn" data-mode="atommap">原子编号图</button>{% endif %}
+                </div>
+                <div class="stereo-img-container">
+                  {% if p.images and p.images.normal %}{{ mol_img(p.images.normal, (p.label or p.name) ~ ' 普通结构图', 'stereo-img', true) }}{% endif %}
+                  {% if p.images and p.images.stereo %}{{ mol_img(p.images.stereo, (p.label or p.name) ~ ' 立体标注图', 'stereo-img stereo-diff-img', true) }}{% endif %}
+                  {% if p.images and p.images.atommap %}{{ mol_img(p.images.atommap, (p.label or p.name) ~ ' 原子编号图', 'stereo-img stereo-diff-img', true) }}{% endif %}
+                  {% if (not p.images or not p.images.normal) and (not p.images or not p.images.stereo) and (not p.images or not p.images.atommap) %}<div class="molecule-placeholder">{{ render_msg(p.render_status) }}</div>{% endif %}
+                </div>
+              </div>
+              <div class="stereo-tables">
+                {% if not p.stereo.rdkit_available %}
+                <div class="stereo-na">{{ p.stereo.analysis_note or '渲染/比较不可用' }}</div>
+                {% else %}
+                  {% if p.stereo.centers %}
+                  <div style="font-size:var(--fs-sm);font-weight:600;margin-bottom:var(--sp-1)">立体中心</div>
+                  <table class="stereo-table" aria-label="立体中心"><thead><tr><th>原子</th><th>构型</th><th>指定</th></tr></thead><tbody>
+                    {% for c in p.stereo.centers %}<tr{% if not c.specified %} class="stereo-unspecified"{% endif %}><td class="mono">{{ c.atom_index }}</td><td>{{ c.assignment or '?' }}</td><td>{{ '是' if c.specified else '否' }}</td></tr>{% endfor %}
+                  </tbody></table>
+                  {% else %}<div class="stereo-no-centers">未检测到立体中心</div>{% endif %}
+                  {% if p.stereo.bonds %}
+                  <div style="font-size:var(--fs-sm);font-weight:600;margin-top:var(--sp-2);margin-bottom:var(--sp-1)">立体键</div>
+                  <table class="stereo-table" aria-label="立体键"><thead><tr><th>键</th><th>构型</th><th>指定</th></tr></thead><tbody>
+                    {% for b in p.stereo.bonds %}<tr{% if not b.specified %} class="stereo-unspecified"{% endif %}><td class="mono">{{ b.begin_atom }}-{{ b.end_atom }}</td><td>{{ b.assignment or '?' }}</td><td>{{ '是' if b.specified else '否' }}</td></tr>{% endfor %}
+                  </tbody></table>
+                  {% endif %}
+                  {% if p.stereo.analysis_note %}<div class="stereo-analysis-note">{{ p.stereo.analysis_note }}</div>{% endif %}
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <!-- Tab: 金标比对 -->
+      <div class="tab-panel" data-tab="gold" role="tabpanel">
+        {% if rxn.gold_pairs is defined and rxn.gold_pairs %}
+          {% if rxn.gold.has_gold %}
+          <div class="gold-alignment"><strong>对齐方式:</strong> {{ rxn.gold.alignment }}{% if rxn.gold.alignment_basis %} &mdash; {{ rxn.gold.alignment_basis }}{% endif %}{% if rxn.gold.gold_reaction_id %} | <strong>金标ID:</strong> <span class="mono">{{ rxn.gold.gold_reaction_id }}</span>{% endif %}</div>
+          {% endif %}
+          {% for gp in rxn.gold_pairs %}
+          <div class="gold-pair" data-pid="{{ gp.participant_id }}">
+            <div class="gold-pair-figures">
+              <figure class="gold-figure">
+                <figcaption>提取结构{% if gp.extracted %}: {{ gp.extracted.label }}{% endif %}</figcaption>
+                {% if gp.extracted and gp.extracted.render_status == 'ok' and gp.extracted.images and gp.extracted.images.normal %}
+                  {{ mol_img(gp.extracted.images.normal, '提取结构', '', true) }}
+                  {% if gp.highlight and gp.extracted.images and gp.extracted.images.diff %}{{ mol_img(gp.extracted.images.diff, '提取结构 差异高亮', 'gold-diff-img', true) }}{% endif %}
+                {% elif gp.extracted %}<div class="molecule-placeholder">{{ render_msg(gp.extracted.render_status) }}</div>
+                {% else %}<div class="molecule-placeholder">提取缺失</div>{% endif %}
+              </figure>
+              <figure class="gold-figure">
+                <figcaption>金标结构{% if gp.gold %}: {{ gp.gold.label }}{% endif %}</figcaption>
+                {% if gp.gold and gp.gold.render_status == 'ok' and gp.gold.images and gp.gold.images.normal %}
+                  {{ mol_img(gp.gold.images.normal, '金标结构', '', true) }}
+                  {% if gp.highlight and gp.gold.images and gp.gold.images.diff %}{{ mol_img(gp.gold.images.diff, '金标结构 差异高亮', 'gold-diff-img', true) }}{% endif %}
+                {% elif gp.gold %}<div class="molecule-placeholder">{{ render_msg(gp.gold.render_status) }}</div>
+                {% else %}<div class="molecule-placeholder">金标缺失</div>{% endif %}
+              </figure>
+            </div>
+            <div class="gold-pair-meta">
+              <span class="gold-pair-label">{{ gold_cmp_label(gp.comparison) }}</span>
+              {% if gp.incomparable_reason %}<span class="gold-pair-reason">{{ gp.incomparable_reason }}</span>{% endif %}
+              {% if gp.highlight and ((gp.extracted and gp.extracted.images and gp.extracted.images.diff) or (gp.gold and gp.gold.images and gp.gold.images.diff)) %}<button class="gold-diff-toggle" data-pid="{{ gp.participant_id }}">差异高亮</button>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        {% elif rxn.gold.has_gold %}
+          <div class="gold-section">
+            <div class="gold-title">对齐结果</div>
+            <p><strong>对齐方式:</strong> {{ rxn.gold.alignment }}{% if rxn.gold.alignment_basis %} &mdash; {{ rxn.gold.alignment_basis }}{% endif %}</p>
+            {% if rxn.gold.gold_reaction_id %}<p><strong>金标ID:</strong> <span class="mono">{{ rxn.gold.gold_reaction_id }}</span></p>{% endif %}
+            {% if rxn.gold.participant_results %}
+            <table class="gold-table"><thead><tr><th>参与物</th><th>金标参与物</th><th>比对结果</th><th>原因</th></tr></thead><tbody>
+              {% for pr in rxn.gold.participant_results %}<tr><td class="mono">{{ pr.participant_id }}</td><td class="mono">{{ pr.gold_participant_id or '—' }}</td><td>{{ gold_cmp_label(pr.comparison) }}</td><td>{{ pr.incomparable_reason or '—' }}</td></tr>{% endfor %}
+            </tbody></table>
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="empty-state" style="padding:var(--sp-3)"><div class="es-desc">未提供金标</div></div>
+        {% endif %}
+      </div>
+
+      <!-- Tab: 条件 -->
+      <div class="tab-panel" data-tab="conditions" role="tabpanel">
         {% if not rxn.conditions %}
-        <div class="empty-state" style="padding:var(--sp-3)">
-          <div class="es-desc">无条件信息</div>
-        </div>
+        <div class="empty-state" style="padding:var(--sp-3)"><div class="es-desc">无条件信息</div></div>
         {% else %}
         <div style="overflow-x:auto">
         <table class="cond-table" aria-label="反应条件表">
-          <colgroup>
-            <col class="col-field"><col class="col-value"><col class="col-orig">
-            <col class="col-source"><col class="col-diff"><col class="col-conclusion">
-          </colgroup>
-          <thead>
-            <tr>
-              <th>字段</th><th>提取值</th><th>文献原值/单位</th>
-              <th>来源</th><th>差异/问题</th><th>审核结论</th>
-            </tr>
-          </thead>
+          <colgroup><col class="col-field"><col class="col-value"><col class="col-orig"><col class="col-source"><col class="col-diff"><col class="col-conclusion"></colgroup>
+          <thead><tr><th>字段</th><th>提取值</th><th>文献原值/单位</th><th>来源</th><th>差异/问题</th><th>审核结论</th></tr></thead>
           <tbody>
           {% for c in rxn.conditions %}
           <tr data-cid="{{ c.condition_id }}" data-evidence-ids="{{ c.evidence_ids | join(',') }}">
             <td class="mono" style="font-weight:600">{{ c.kind }}</td>
             <td>{{ c.value or '—' }}</td>
             <td>{{ c.value or '—' }}{% if c.unit %} <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">{{ c.unit }}</span>{% endif %}</td>
-            <td>
-              {% if c.has_field_evidence %}
-              <span class="evidence-tag">field evidence</span>
-              {% else %}
-              <span class="legacy-tag">reaction-level</span>
-              {% endif %}
-            </td>
+            <td>{% if c.has_field_evidence %}<span class="evidence-tag">field evidence</span>{% else %}<span class="legacy-tag">reaction-level</span>{% endif %}</td>
             <td>{{ c.extraction_state }}</td>
             <td>
               <div class="target-actions" data-target-kind="condition" data-target-id="{{ c.condition_id }}" data-field-path="{{ c.field_path or '' }}" data-old-value="{{ c.value or '' }}">
@@ -751,14 +643,9 @@ code, .mono { font-family: var(--font-mono); }
         </table>
         </div>
         {% endif %}
-      </div>
-
-      <!-- Reaction-level fields -->
-      <div class="section">
-        <div class="section-title">反应概况</div>
-        <div style="overflow-x:auto">
-        <table class="cond-table" aria-label="反应概况表">
-          <tbody>
+        <div class="section" style="margin-top:var(--sp-4)">
+          <div class="section-title">反应概况</div>
+          <div style="overflow-x:auto"><table class="cond-table" aria-label="反应概况表"><tbody>
             <tr><td style="font-weight:600;width:25%">底物</td><td>{{ rxn.reactants_text or '—' }}</td></tr>
             <tr><td style="font-weight:600">产物</td><td>{{ rxn.products_text or '—' }}</td></tr>
             <tr><td style="font-weight:600">试剂</td><td>{{ rxn.reagents | join(', ') or '—' }}</td></tr>
@@ -766,9 +653,11 @@ code, .mono { font-family: var(--font-mono); }
             <tr><td style="font-weight:600">温度</td><td>{{ rxn.temperature_c or '—' }}{% if rxn.temperature_c is not none %} °C{% endif %}</td></tr>
             <tr><td style="font-weight:600">时间</td><td>{{ rxn.time or '—' }}</td></tr>
             <tr><td style="font-weight:600">产率</td><td>{{ rxn.yield_pct or '—' }}{% if rxn.yield_pct is not none %}%{% endif %}</td></tr>
-          </tbody>
-        </table>
+          </tbody></table></div>
         </div>
+      </div>
+
+      <div style="margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--c-border-light)">
         <div class="target-actions" data-target-kind="reaction" data-target-id="{{ rxn.reaction_id }}">
           <button class="act-btn" data-op="confirm" aria-label="确认反应">确认反应</button>
           <button class="act-btn" data-op="mark_pending" aria-label="待定反应">待定</button>
@@ -777,60 +666,11 @@ code, .mono { font-family: var(--font-mono); }
         </div>
       </div>
 
-      <!-- Gold comparison -->
-      <div class="section">
-        <div class="section-title">金标比对</div>
-        {% if rxn.gold.has_gold %}
-        <div class="gold-section">
-          <div class="gold-title">对齐结果</div>
-          <p><strong>对齐方式:</strong> {{ rxn.gold.alignment }}{% if rxn.gold.alignment_basis %} &mdash; {{ rxn.gold.alignment_basis }}{% endif %}</p>
-          {% if rxn.gold.gold_reaction_id %}<p><strong>金标ID:</strong> <span class="mono">{{ rxn.gold.gold_reaction_id }}</span></p>{% endif %}
-          {% if rxn.gold.participant_results %}
-          <table class="gold-table" aria-label="金标参与者比对">
-            <thead><tr><th>参与物</th><th>金标参与物</th><th>比对结果</th><th>原因</th></tr></thead>
-            <tbody>
-            {% for pr in rxn.gold.participant_results %}
-            <tr>
-              <td class="mono">{{ pr.participant_id }}</td>
-              <td class="mono">{{ pr.gold_participant_id or '—' }}</td>
-              <td>{{ pr.comparison }}</td>
-              <td>{{ pr.incomparable_reason or '—' }}</td>
-            </tr>
-            {% endfor %}
-            </tbody>
-          </table>
-          {% endif %}
-          {% if rxn.gold.participant_results %}
-          {% set unmatched = rxn.gold.participant_results | selectattr('comparison', 'equalto', 'unmatched') | list %}
-          {% if unmatched %}
-          <div style="margin-top:var(--sp-2)">
-            <div class="stereo-label">未匹配项</div>
-            {% for pr in unmatched %}
-            <div style="font-size:var(--fs-sm);color:var(--c-warning)">{{ pr.participant_id }}{% if pr.incomparable_reason %}: {{ pr.incomparable_reason }}{% endif %}</div>
-            {% endfor %}
-          </div>
-          {% endif %}
-          {% endif %}
-        </div>
-        {% else %}
-        <div class="empty-state" style="padding:var(--sp-3)">
-          <div class="es-desc">未提供金标</div>
-        </div>
-        {% endif %}
-      </div>
-
-      <!-- Machine issues (reaction-level) -->
       {% if rxn.issues %}
-      <div class="section">
+      <div class="section" style="margin-top:var(--sp-3)">
         <div class="section-title">机器校验问题 <span class="st-count">{{ rxn.issues | length }}</span></div>
         <ul class="issues-list" aria-label="反应级机器校验问题">
-          {% for issue in rxn.issues %}
-          <li class="issue-{{ issue.severity }}">
-            <span class="mono" style="font-weight:600">{{ issue.code }}</span>
-            <span>{{ issue.message }}</span>
-            {% if issue.suggested_value %}<span style="color:var(--c-text-muted);font-size:var(--fs-xs)"> (建议: {{ issue.suggested_value }})</span>{% endif %}
-          </li>
-          {% endfor %}
+          {% for issue in rxn.issues %}<li class="issue-{{ issue.severity }}"><span class="mono" style="font-weight:600">{{ issue.code }}</span> <span>{{ issue.message }}</span>{% if issue.suggested_value %}<span style="color:var(--c-text-muted);font-size:var(--fs-xs)"> (建议: {{ issue.suggested_value }})</span>{% endif %}</li>{% endfor %}
         </ul>
       </div>
       {% endif %}
@@ -840,61 +680,36 @@ code, .mono { font-family: var(--font-mono); }
     {% endif %}
   </div>
 
-  <!-- ===== EVIDENCE PANE ===== -->
+  <!-- EVIDENCE DRAWER -->
   <div class="evidence-pane" id="evidence-pane" role="complementary" aria-label="证据查看器">
-    <div class="ev-header">
-      证据查看器
-      <span class="ev-count" id="ev-count"></span>
-    </div>
+    <div class="ev-header">证据查看器 <span class="ev-count" id="ev-count"></span></div>
     <div class="ev-list" id="ev-list">
       {% if not view.evidence %}
-      <div class="ev-empty">
-        {% if view.evidence_missing %}
-        <div class="ev-missing">缺失证据ID: {{ view.evidence_missing | join(', ') }}</div>
-        {% else %}
-        <p>无证据信息</p>
-        {% endif %}
-      </div>
+      <div class="ev-empty">{% if view.evidence_missing %}<div class="ev-missing">缺失证据ID: {{ view.evidence_missing | join(', ') }}</div>{% else %}<p>无证据信息</p>{% endif %}</div>
       {% else %}
       {% for ev in view.evidence %}
       <div class="ev-item" data-eid="{{ ev.evidence_id }}" role="button" tabindex="0" aria-label="证据 {{ ev.evidence_id }}">
-        <div class="ev-meta">
-          <span class="ev-kind">{{ ev.kind }}</span>
-          <span class="ev-page">{% if ev.page %}p.{{ ev.page }}{% endif %}</span>
-          <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">{{ ev.evidence_id }}</span>
-        </div>
+        <div class="ev-meta"><span class="ev-kind">{{ ev.kind }}</span> <span class="ev-page">{% if ev.page %}p.{{ ev.page }}{% endif %}</span> <span class="mono" style="font-size:var(--fs-xs);color:var(--c-text-muted)">{{ ev.evidence_id }}</span></div>
         <div class="ev-text">{{ ev.text[:300] if ev.text else '—' }}</div>
-        {% if ev.asset_path %}
-        <div class="ev-asset">
-          <span style="font-size:var(--fs-xs);color:var(--c-text-muted)">{{ ev.asset_path }}</span>
-          {% if ev.asset_path.endswith('.png') or ev.asset_path.endswith('.jpg') or ev.asset_path.endswith('.jpeg') %}
-          <img src="{{ ev.asset_path }}" alt="证据图片 {{ ev.evidence_id }}" loading="lazy">
-          {% endif %}
-        </div>
-        {% endif %}
+        {% if ev.asset_path %}<div class="ev-asset"><span style="font-size:var(--fs-xs);color:var(--c-text-muted)">{{ ev.asset_path }}</span>{% if ev.asset_path.endswith('.png') or ev.asset_path.endswith('.jpg') or ev.asset_path.endswith('.jpeg') %} <img src="{{ ev.asset_path }}" alt="证据图片 {{ ev.evidence_id }}" loading="lazy">{% endif %}</div>{% endif %}
       </div>
       {% endfor %}
-      {% if view.evidence_missing %}
-      <div class="ev-missing">缺失证据ID: {{ view.evidence_missing | join(', ') }}</div>
-      {% endif %}
+      {% if view.evidence_missing %}<div class="ev-missing">缺失证据ID: {{ view.evidence_missing | join(', ') }}</div>{% endif %}
       {% endif %}
     </div>
   </div>
 
-  <!-- ===== FOOTER ===== -->
+  <!-- FOOTER -->
   <div class="footer" role="contentinfo">
     <div class="footer-nav">
       <button class="footer-btn" id="btn-prev" aria-label="上一反应" disabled>&larr; 上一反应</button>
       <button class="footer-btn" id="btn-next-unreviewed" aria-label="下一待审项">下一待审项 &rarr;</button>
     </div>
-    <div class="pending-summary">
-      当前修订摘要: <span class="pending-count" id="pending-count">0</span> 项待处理
-    </div>
+    <div class="pending-summary">当前修订摘要: <span class="pending-count" id="pending-count">0</span> 项待处理</div>
     <div class="authoritative-note">导出审核包为权威数据；本地存储仅供参考</div>
     <div class="footer-spacer"></div>
     <div style="display:flex;align-items:center;gap:var(--sp-2)">
-      <input type="text" id="reviewer-input" placeholder="审核人姓名" required
-             aria-label="审核人姓名" style="padding:3px 8px;border:1px solid var(--c-border);border-radius:var(--radius-sm);font-size:var(--fs-xs);width:120px">
+      <input type="text" id="reviewer-input" placeholder="审核人姓名" required aria-label="审核人姓名" style="padding:3px 8px;border:1px solid var(--c-border);border-radius:var(--radius-sm);font-size:var(--fs-xs);width:120px">
       <button class="footer-btn primary" id="btn-confirm-reaction" aria-label="确认本反应">确认本反应</button>
       <button class="footer-btn export" id="btn-export" aria-label="导出审核包">导出审核包</button>
     </div>
@@ -902,46 +717,35 @@ code, .mono { font-family: var(--font-mono); }
 
 </div>
 
-<!-- Hidden file input for import -->
-<input type="file" id="import-file" accept=".json" style="display:none" aria-hidden="true">
+<!-- LIGHTBOX -->
+<div class="lightbox-overlay" id="lightbox-overlay" aria-hidden="true">
+  <div class="lightbox-backdrop"></div>
+  <img class="lightbox-img" alt="">
+  <button class="lightbox-close" aria-label="关闭">&times;</button>
+</div>
 
-<!-- ===== DATA PAYLOAD ===== -->
+<input type="file" id="import-file" accept=".json" style="display:none" aria-hidden="true">
+<!-- DATA PAYLOAD -->
 <script id="chemex-review-data" type="application/json">{{ view | tojson | replace('</', '<\\/') | safe }}</script>
 
-<!-- ===== APPLICATION LOGIC ===== -->
+<!-- APPLICATION LOGIC -->
 <script>
 (function() {
   "use strict";
 
-  // ===== i18n strings =====
   var T = {
-    pendingChanges: '项待处理',
-    reviewerRequired: '请输入审核人姓名',
+    pendingChanges: '项待处理', reviewerRequired: '请输入审核人姓名',
     reasonRequired: '请填写理由（待定/不适用/拒绝操作需要）',
-    importedOk: '已导入 {n} 条操作',
-    invalidFile: '无效的草稿文件: {err}',
-    noUnreviewed: '没有未审核的反应',
-    confirmFirst: '请先确认当前反应',
-    exportAuthoritative: '导出审核包为权威数据；本地存储仅供参考',
-    staleBlocked: '存在旧图标记，请先修订后再确认',
-    rdkitUnavailable: '渲染/比较不可用',
-    noStereocenters: '未检测到立体中心',
-    analysisUnavailable: '分析不可用',
-    reactionLevelOnly: 'reaction-level reference only',
-    noGold: '未提供金标',
-    noRecords: '没有记录',
-    noConditions: '无条件信息',
-    noEvidence: '无证据信息',
-    missingEvidence: '缺失证据ID',
-    structureUnresolved: '结构未解析'
+    importedOk: '已导入 {n} 条操作', invalidFile: '无效的草稿文件: {err}',
+    noUnreviewed: '没有未审核的反应', confirmFirst: '请先确认当前反应',
+    staleBlocked: '存在旧图标记，请先修订后再确认', noGold: '未提供金标',
+    noRecords: '没有记录', noConditions: '无条件信息', noEvidence: '无证据信息',
+    imgLoadFailed: '结构图加载失败，请重新生成审核包'
   };
 
-  // ===== State =====
   var viewData = JSON.parse(document.getElementById("chemex-review-data").textContent);
-  var drafts = {};       // key -> {target_kind, target_id, op, reason}
+  var drafts = {};
   var currentIdx = 0;
-
-  // ===== DOM refs =====
   var queueList = document.getElementById("queue-list");
   var detailPane = document.getElementById("detail-pane");
   var searchInput = document.getElementById("queue-search");
@@ -949,130 +753,163 @@ code, .mono { font-family: var(--font-mono); }
   var evPane = document.getElementById("evidence-pane");
   var evList = document.getElementById("ev-list");
 
-  // ===== Init header metadata =====
-  (function initHeader() {
-    // Title: use first reaction_id or generic
+  /* === Image fallback (capture phase) === */
+  document.addEventListener("error", function(e) {
+    if (!e.target.classList || !e.target.classList.contains("molecule-img")) return;
+    var img = e.target;
+    if (img.dataset.fallbackSrc && !img.dataset.fallbackTried) {
+      img.dataset.fallbackTried = "1";
+      img.src = img.dataset.fallbackSrc;
+    } else {
+      var notice = document.createElement("div");
+      notice.className = "molecule-load-error";
+      notice.textContent = T.imgLoadFailed;
+      if (img.parentNode) img.parentNode.replaceChild(notice, img);
+    }
+  }, true);
+
+  /* === Lightbox === */
+  function openLightbox(src, alt) {
+    var o = document.getElementById("lightbox-overlay");
+    o.querySelector(".lightbox-img").src = src;
+    o.querySelector(".lightbox-img").alt = alt || "";
+    o.classList.add("active");
+    o.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+  }
+  function closeLightbox() {
+    var o = document.getElementById("lightbox-overlay");
+    o.classList.remove("active");
+    o.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  }
+  document.addEventListener("click", function(e) {
+    var img = e.target.closest(".molecule-img");
+    if (img && img.src && img.tagName === "IMG") { openLightbox(img.src, img.alt); return; }
+    var o = document.getElementById("lightbox-overlay");
+    if (o.classList.contains("active") && (e.target.classList.contains("lightbox-backdrop") || e.target.classList.contains("lightbox-close") || e.target.closest(".lightbox-close"))) closeLightbox();
+  });
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape" && document.getElementById("lightbox-overlay").classList.contains("active")) closeLightbox();
+  });
+
+  /* === Tab switching === */
+  document.addEventListener("click", function(e) {
+    var btn = e.target.closest(".tab-btn");
+    if (!btn) return;
+    var tabBar = btn.closest(".tab-bar");
+    var detail = btn.closest(".reaction-detail");
+    if (!detail) return;
+    var tabName = btn.dataset.tab;
+    tabBar.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.toggle("active", b === btn); b.setAttribute("aria-selected", b === btn ? "true" : "false"); });
+    detail.querySelectorAll(".tab-panel").forEach(function(p) { p.classList.toggle("active", p.dataset.tab === tabName); });
+  });
+
+  /* === Stereo mode switching === */
+  document.addEventListener("click", function(e) {
+    var btn = e.target.closest(".stereo-mode-btn");
+    if (!btn) return;
+    var area = btn.closest(".stereo-img-area");
+    if (!area) return;
+    var mode = btn.dataset.mode;
+    area.querySelectorAll(".stereo-mode-btn").forEach(function(b) { b.classList.toggle("active", b === btn); });
+    var container = area.querySelector(".stereo-img-container");
+    if (!container) return;
+    var allImgs = container.querySelectorAll(".molecule-img.stereo-img");
+    var diffImgs = container.querySelectorAll(".stereo-diff-img");
+    allImgs.forEach(function(img) {
+      var isVariant = img.classList.contains("stereo-diff-img");
+      var show = false;
+      if (mode === "normal") show = !isVariant;
+      else if (mode === "stereo") show = isVariant && diffImgs.length > 0 && img === diffImgs[0];
+      else if (mode === "atommap") show = isVariant && diffImgs.length > 1 && img === diffImgs[1];
+      img.style.display = show ? "block" : "none";
+    });
+  });
+
+  /* === Gold diff toggle === */
+  document.addEventListener("click", function(e) {
+    var btn = e.target.closest(".gold-diff-toggle");
+    if (!btn) return;
+    var pair = btn.closest(".gold-pair");
+    if (!pair) return;
+    var showing = btn.classList.toggle("active");
+    btn.textContent = showing ? "原图" : "差异高亮";
+    pair.querySelectorAll(".gold-figure").forEach(function(fig) {
+      var n = fig.querySelector(".molecule-img:not(.gold-diff-img)");
+      var d = fig.querySelector(".gold-diff-img");
+      if (n) n.style.display = showing ? "none" : "";
+      if (d) d.style.display = showing ? "block" : "none";
+    });
+  });
+
+  /* === Hero scroll hint === */
+  function checkHeroScroll() {
+    document.querySelectorAll(".rxn-hero-canvas").forEach(function(c) { c.classList.toggle("is-scrollable", c.scrollWidth > c.clientWidth + 10); });
+  }
+  window.addEventListener("resize", checkHeroScroll);
+  setTimeout(checkHeroScroll, 100);
+
+  /* === Header init === */
+  (function() {
     var title = "ChemEx-Lit Review";
-    if (viewData.reactions && viewData.reactions.length > 0) {
-      title = viewData.reactions[0].reaction_id;
-      if (viewData.reactions.length > 1) title += " +" + (viewData.reactions.length - 1);
-    }
+    if (viewData.reactions && viewData.reactions.length > 0) { title = viewData.reactions[0].reaction_id; if (viewData.reactions.length > 1) title += " +" + (viewData.reactions.length - 1); }
     document.getElementById("header-title").textContent = title;
-
-    // Data version: hash prefix of first reaction (if available)
-    var version = "--";
-    if (viewData.reactions && viewData.reactions.length > 0) {
-      // Compute a simple hash from reaction_id + position as proxy
-      var r0 = viewData.reactions[0];
-      version = r0.reaction_id + "#" + r0.position;
-    }
-    document.getElementById("data-version").textContent = version;
-
-    // Review progress
+    var v = "--";
+    if (viewData.reactions && viewData.reactions.length > 0) { var r0 = viewData.reactions[0]; v = r0.reaction_id + "#" + r0.position; }
+    document.getElementById("data-version").textContent = v;
     updateProgress();
-
-    // Gold version
-    if (viewData.has_gold) {
-      document.getElementById("gold-version").textContent = "已提供";
-    }
+    if (viewData.has_gold) document.getElementById("gold-version").textContent = "已提供";
   })();
 
   function updateProgress() {
-    var total = viewData.record_count || 0;
-    var reviewed = 0;
-    (viewData.reactions || []).forEach(function(r) {
-      if (r.human_status === "confirmed" || r.human_status === "rejected") reviewed++;
-    });
+    var total = viewData.record_count || 0, reviewed = 0;
+    (viewData.reactions || []).forEach(function(r) { if (r.human_status === "confirmed" || r.human_status === "rejected") reviewed++; });
     document.getElementById("review-progress").textContent = reviewed + "/" + total;
   }
 
-  // ===== Selection =====
+  /* === Selection === */
   function selectReaction(idx, skipScroll) {
     currentIdx = parseInt(idx, 10);
-    // Update queue
-    var items = queueList.querySelectorAll(".queue-item");
-    items.forEach(function(el) {
-      var match = el.dataset.idx === String(idx);
-      el.classList.toggle("selected", match);
-      el.setAttribute("aria-selected", match ? "true" : "false");
-    });
-    // Update detail
-    var details = detailPane.querySelectorAll(".reaction-detail");
-    details.forEach(function(el) {
-      el.style.display = el.dataset.idx === String(idx) ? "" : "none";
-    });
-    // Update evidence highlighting
+    queueList.querySelectorAll(".queue-item").forEach(function(el) { var m = el.dataset.idx === String(idx); el.classList.toggle("selected", m); el.setAttribute("aria-selected", m ? "true" : "false"); });
+    detailPane.querySelectorAll(".reaction-detail").forEach(function(el) { el.style.display = el.dataset.idx === String(idx) ? "" : "none"; });
     updateEvidenceHighlight();
-    // Scroll queue item into view
-    if (!skipScroll) {
-      var sel = queueList.querySelector(".queue-item.selected");
-      if (sel) sel.scrollIntoView({ block: "nearest" });
-    }
-    // Update footer nav state
+    if (!skipScroll) { var sel = queueList.querySelector(".queue-item.selected"); if (sel) sel.scrollIntoView({ block: "nearest" }); }
     updateFooterNav();
-    // Reset action button states from drafts
     restoreActionStates();
+    checkHeroScroll();
   }
-
   function updateFooterNav() {
-    var items = getVisibleItems();
-    var currentPos = -1;
-    items.forEach(function(el, i) {
-      if (el.dataset.idx === String(currentIdx)) currentPos = i;
-    });
-    document.getElementById("btn-prev").disabled = (currentPos <= 0);
-
-    // Highlight current reaction in footer
+    var items = getVisibleItems(), pos = -1;
+    items.forEach(function(el, i) { if (el.dataset.idx === String(currentIdx)) pos = i; });
+    document.getElementById("btn-prev").disabled = (pos <= 0);
     var rxn = viewData.reactions[currentIdx];
-    if (rxn) {
-      document.getElementById("btn-confirm-reaction").disabled = (rxn.human_status === "confirmed" || rxn.human_status === "rejected");
-    }
+    if (rxn) document.getElementById("btn-confirm-reaction").disabled = (rxn.human_status === "confirmed" || rxn.human_status === "rejected");
   }
+  function getVisibleItems() { return Array.from(queueList.querySelectorAll(".queue-item")).filter(function(el) { return el.style.display !== "none"; }); }
 
-  function getVisibleItems() {
-    return Array.from(queueList.querySelectorAll(".queue-item")).filter(function(el) {
-      return el.style.display !== "none";
-    });
-  }
+  queueList.addEventListener("click", function(e) { var item = e.target.closest(".queue-item"); if (item) selectReaction(item.dataset.idx); });
 
-  // ===== Queue click =====
-  queueList.addEventListener("click", function(e) {
-    var item = e.target.closest(".queue-item");
-    if (item) selectReaction(item.dataset.idx);
-  });
-
-  // ===== Search =====
+  /* === Search === */
   searchInput.addEventListener("input", function() {
     var q = searchInput.value.toLowerCase();
     queueList.querySelectorAll(".queue-item").forEach(function(item) {
-      var haystack = (item.dataset.search || item.dataset.rid || "").toLowerCase();
-      var rid = item.dataset.rid.toLowerCase();
-      item.style.display = (haystack.indexOf(q) >= 0 || rid.indexOf(q) >= 0) ? "" : "none";
+      var h = (item.dataset.search || item.dataset.rid || "").toLowerCase();
+      item.style.display = (h.indexOf(q) >= 0 || item.dataset.rid.toLowerCase().indexOf(q) >= 0) ? "" : "none";
     });
     updateQueueCount();
   });
 
-  // ===== Filter chips =====
+  /* === Filter chips === */
   filterChips.forEach(function(chip) {
     chip.addEventListener("click", function() {
-      filterChips.forEach(function(c) {
-        c.classList.remove("active");
-        c.setAttribute("aria-pressed", "false");
-      });
-      chip.classList.add("active");
-      chip.setAttribute("aria-pressed", "true");
+      filterChips.forEach(function(c) { c.classList.remove("active"); c.setAttribute("aria-pressed", "false"); });
+      chip.classList.add("active"); chip.setAttribute("aria-pressed", "true");
       var filter = chip.dataset.filter;
       queueList.querySelectorAll(".queue-item").forEach(function(item) {
         var show = true;
         if (filter === "unreviewed") show = item.dataset.human === "unreviewed";
-        else if (filter === "missing_structure") {
-          // Check if any participant has unresolved structure
-          var idx = parseInt(item.dataset.idx, 10);
-          var rxn = viewData.reactions[idx];
-          show = rxn && rxn.participants && rxn.participants.some(function(p) {
-            return p.structure_state === "unresolved" || p.structure_state === "not_attempted";
-          });
-        }
+        else if (filter === "missing_structure") { var idx = parseInt(item.dataset.idx, 10); var rxn = viewData.reactions[idx]; show = rxn && rxn.participants && rxn.participants.some(function(p) { return p.structure_state === "unresolved" || p.structure_state === "not_attempted"; }); }
         else if (filter === "stereo_pending") show = item.dataset.human === "pending";
         else if (filter === "gold_diff") show = item.dataset.hasGold === "true";
         item.style.display = show ? "" : "none";
@@ -1080,459 +917,187 @@ code, .mono { font-family: var(--font-mono); }
       updateQueueCount();
     });
   });
+  function updateQueueCount() { var v = queueList.querySelectorAll(".queue-item:not([style*='display: none'])").length; document.getElementById("queue-count").textContent = v + " 条反应"; }
 
-  function updateQueueCount() {
-    var visible = queueList.querySelectorAll(".queue-item:not([style*='display: none'])").length;
-    document.getElementById("queue-count").textContent = visible + " 条反应";
-  }
-
-  // ===== Evidence highlighting =====
+  /* === Evidence highlighting === */
   function updateEvidenceHighlight() {
-    var rxn = viewData.reactions[currentIdx];
-    if (!rxn) return;
-    // Collect all evidence IDs from the current reaction
+    var rxn = viewData.reactions[currentIdx]; if (!rxn) return;
     var evIds = new Set();
     (rxn.evidence_ids || []).forEach(function(id) { evIds.add(id); });
-    (rxn.participants || []).forEach(function(p) {
-      (p.evidence_ids || []).forEach(function(id) { evIds.add(id); });
-      (p.field_evidence_ids || []).forEach(function(id) { evIds.add(id); });
-    });
-    (rxn.conditions || []).forEach(function(c) {
-      (c.evidence_ids || []).forEach(function(id) { evIds.add(id); });
-      (c.field_evidence_ids || []).forEach(function(id) { evIds.add(id); });
-    });
-
-    evList.querySelectorAll(".ev-item").forEach(function(el) {
-      el.classList.toggle("highlighted", evIds.has(el.dataset.eid));
-    });
-
-    // Update evidence count
+    (rxn.participants || []).forEach(function(p) { (p.evidence_ids || []).forEach(function(id) { evIds.add(id); }); (p.field_evidence_ids || []).forEach(function(id) { evIds.add(id); }); });
+    (rxn.conditions || []).forEach(function(c) { (c.evidence_ids || []).forEach(function(id) { evIds.add(id); }); (c.field_evidence_ids || []).forEach(function(id) { evIds.add(id); }); });
+    evList.querySelectorAll(".ev-item").forEach(function(el) { el.classList.toggle("highlighted", evIds.has(el.dataset.eid)); });
     document.getElementById("ev-count").textContent = evIds.size + " 条相关";
   }
 
-  // ===== SMILES toggle/copy =====
-  window.toggleSmiles = function(btn) {
-    var code = btn.previousElementSibling;
-    if (!code) return;
-    var isHidden = code.classList.contains("smiles-hidden");
-    code.classList.toggle("smiles-hidden");
-    btn.textContent = isHidden ? "折叠" : "展开";
-  };
+  /* === SMILES copy === */
+  window.copySmiles = function(pid) { var el = document.getElementById("smiles-" + pid); if (el) navigator.clipboard.writeText(el.textContent).catch(function() {}); };
 
-  window.copySmiles = function(pid) {
-    var el = document.getElementById("smiles-" + pid);
-    if (!el) return;
-    navigator.clipboard.writeText(el.textContent).then(function() {
-      // Brief visual feedback
-    }).catch(function() {});
-  };
-
-  // ===== Draft actions =====
+  /* === Draft actions === */
   function setupActionButtons() {
     document.addEventListener("click", function(e) {
-      var btn = e.target.closest(".act-btn");
-      if (!btn) return;
-      var actionsDiv = btn.closest(".target-actions");
-      if (!actionsDiv) return;
-      var kind = actionsDiv.dataset.targetKind;
-      var tid = actionsDiv.dataset.targetId;
-      var op = btn.dataset.op;
+      var btn = e.target.closest(".act-btn"); if (!btn) return;
+      var actionsDiv = btn.closest(".target-actions"); if (!actionsDiv) return;
+      var kind = actionsDiv.dataset.targetKind, tid = actionsDiv.dataset.targetId, op = btn.dataset.op;
       var key = kind + ":" + tid;
       var reasonInput = actionsDiv.querySelector(".reason-input");
-
-      // For pending/napplicable/reject, require reason
       var needsReason = (op === "mark_pending" || op === "mark_not_applicable" || op === "reject");
-      if (needsReason) {
-        if (reasonInput) {
-          reasonInput.classList.add("visible");
-          reasonInput.required = true;
-          if (!reasonInput.value.trim()) {
-            reasonInput.focus();
-            reasonInput.setCustomValidity(T.reasonRequired);
-            reasonInput.reportValidity();
-            return;
-          }
-          reasonInput.setCustomValidity("");
-        }
+      if (needsReason && reasonInput) {
+        reasonInput.classList.add("visible"); reasonInput.required = true;
+        if (!reasonInput.value.trim()) { reasonInput.focus(); reasonInput.setCustomValidity(T.reasonRequired); reasonInput.reportValidity(); return; }
+        reasonInput.setCustomValidity("");
       }
-
       var reason = reasonInput ? reasonInput.value.trim() : null;
-
-      // Stale image check for confirm on participant
       if (op === "confirm" && kind === "participant_identity") {
         var rxn = viewData.reactions[currentIdx];
-        if (rxn) {
-          var participant = rxn.participants.find(function(p) { return p.participant_id === tid; });
-          if (participant && participant.stale_image) {
-            if (!confirm(T.staleBlocked + "\n\n确定继续确认？")) return;
-          }
-        }
+        if (rxn) { var participant = rxn.participants.find(function(p) { return p.participant_id === tid; }); if (participant && participant.stale_image && !confirm(T.staleBlocked + "\n\n确定继续确认？")) return; }
       }
-
-      // Revise flow: show inline input for set_value
       if (op === "revise") {
-        var fieldPath = actionsDiv.dataset.fieldPath;
-        if (!fieldPath) return;
-        var reviseInput = actionsDiv.querySelector(".revise-input");
-        if (!reviseInput) return;
+        var fieldPath = actionsDiv.dataset.fieldPath; if (!fieldPath) return;
+        var reviseInput = actionsDiv.querySelector(".revise-input"); if (!reviseInput) return;
         var oldValue = actionsDiv.dataset.oldValue || "";
-        reviseInput.value = oldValue;
-        reviseInput.style.display = "inline-block";
-        reviseInput.focus();
+        reviseInput.value = oldValue; reviseInput.style.display = "inline-block"; reviseInput.focus();
         var reviseHandler = function(ev) {
           if (ev.key === "Enter") {
-            ev.preventDefault();
-            var newValue = reviseInput.value.trim();
-            if (!newValue) return;
-            drafts[key] = {
-              target_kind: kind, target_id: tid, op: "set_value",
-              reason: null, path: fieldPath,
-              old_value: oldValue || null, new_value: newValue
-            };
-            reviseInput.style.display = "none";
-            reviseInput.removeEventListener("keydown", reviseHandler);
-            actionsDiv.querySelectorAll(".act-btn").forEach(function(b) {
-              b.className = "act-btn";
-            });
+            ev.preventDefault(); var newValue = reviseInput.value.trim(); if (!newValue) return;
+            drafts[key] = { target_kind: kind, target_id: tid, op: "set_value", reason: null, path: fieldPath, old_value: oldValue || null, new_value: newValue };
+            reviseInput.style.display = "none"; reviseInput.removeEventListener("keydown", reviseHandler);
+            actionsDiv.querySelectorAll(".act-btn").forEach(function(b) { b.className = "act-btn"; });
             btn.className = "act-btn active-confirm";
-            // Stale badge for participant structure revise
             if (kind === "participant_identity" && fieldPath.indexOf(".smiles") >= 0) {
               var card = actionsDiv.closest(".participant-card");
               if (card) {
                 card.classList.add("stale");
-                var pcardRight = card.querySelector(".pcard-right");
-                if (pcardRight && !card.querySelector(".stale-badge")) {
-                  var staleBadge = document.createElement("span");
-                  staleBadge.className = "stale-badge";
-                  staleBadge.setAttribute("aria-label", "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1");
-                  staleBadge.textContent = "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1";
-                  pcardRight.appendChild(staleBadge);
-                }
-                var confirmBtn = actionsDiv.querySelector('[data-op="confirm"]');
-                if (confirmBtn) confirmBtn.disabled = true;
+                var pcr = card.querySelector(".pcard-right");
+                if (pcr && !card.querySelector(".stale-badge")) { var sb = document.createElement("span"); sb.className = "stale-badge"; sb.setAttribute("aria-label", "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1"); sb.textContent = "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1"; pcr.appendChild(sb); }
+                var cb = actionsDiv.querySelector('[data-op="confirm"]'); if (cb) cb.disabled = true;
               }
             }
-            updatePendingCount();
-            trySaveDrafts();
-          } else if (ev.key === "Escape") {
-            reviseInput.style.display = "none";
-            reviseInput.removeEventListener("keydown", reviseHandler);
-          }
+            updatePendingCount(); trySaveDrafts();
+          } else if (ev.key === "Escape") { reviseInput.style.display = "none"; reviseInput.removeEventListener("keydown", reviseHandler); }
         };
         reviseInput.addEventListener("keydown", reviseHandler);
         return;
       }
-
-      // Save draft
       drafts[key] = { target_kind: kind, target_id: tid, op: op, reason: reason || null };
-
-      // Update button states
-      actionsDiv.querySelectorAll(".act-btn").forEach(function(b) {
-        b.className = "act-btn";
-      });
-      var activeClass = {
-        confirm: "active-confirm",
-        revise: "active-pending",
-        set_value: "active-confirm",
-        mark_pending: "active-pending",
-        mark_not_applicable: "active-na",
-        reject: "active-reject"
-      };
-      btn.className = "act-btn " + (activeClass[op] || "");
-
-      updatePendingCount();
-      trySaveDrafts();
+      actionsDiv.querySelectorAll(".act-btn").forEach(function(b) { b.className = "act-btn"; });
+      var ac = { confirm: "active-confirm", revise: "active-pending", set_value: "active-confirm", mark_pending: "active-pending", mark_not_applicable: "active-na", reject: "active-reject" };
+      btn.className = "act-btn " + (ac[op] || "");
+      updatePendingCount(); trySaveDrafts();
     });
   }
   setupActionButtons();
 
-  // Show reason input when pending/napplicable/reject button clicked
   document.addEventListener("click", function(e) {
-    var btn = e.target.closest(".act-btn");
-    if (!btn) return;
+    var btn = e.target.closest(".act-btn"); if (!btn) return;
     var op = btn.dataset.op;
     if (op === "mark_pending" || op === "mark_not_applicable" || op === "reject") {
-      var actionsDiv = btn.closest(".target-actions");
-      var reasonInput = actionsDiv.querySelector(".reason-input");
-      if (reasonInput) {
-        reasonInput.classList.add("visible");
-        reasonInput.required = true;
-        reasonInput.focus();
-      }
+      var ri = btn.closest(".target-actions").querySelector(".reason-input");
+      if (ri) { ri.classList.add("visible"); ri.required = true; ri.focus(); }
     }
   });
 
   function restoreActionStates() {
-    // Restore visual state of action buttons from drafts
     Object.keys(drafts).forEach(function(key) {
       var d = drafts[key];
-      var selector = '.target-actions[data-target-kind="' + d.target_kind + '"][data-target-id="' + d.target_id + '"]';
-      var actionsDiv = document.querySelector(selector);
-      if (!actionsDiv) return;
-      var activeClass = {
-        confirm: "active-confirm",
-        revise: "active-pending",
-        set_value: "active-confirm",
-        mark_pending: "active-pending",
-        mark_not_applicable: "active-na",
-        reject: "active-reject"
-      };
-      // For set_value drafts, highlight the revise button
+      var sel = '.target-actions[data-target-kind="' + d.target_kind + '"][data-target-id="' + d.target_id + '"]';
+      var ad = document.querySelector(sel); if (!ad) return;
+      var ac = { confirm: "active-confirm", revise: "active-pending", set_value: "active-confirm", mark_pending: "active-pending", mark_not_applicable: "active-na", reject: "active-reject" };
       var displayOp = d.op === "set_value" ? "revise" : d.op;
-      actionsDiv.querySelectorAll(".act-btn").forEach(function(b) {
-        b.className = "act-btn";
-        if (b.dataset.op === displayOp) {
-          b.className = "act-btn " + (activeClass[d.op] || "");
-        }
-      });
-      // Restore reason
-      var reasonInput = actionsDiv.querySelector(".reason-input");
-      if (reasonInput && d.reason) {
-        reasonInput.value = d.reason;
-        reasonInput.classList.add("visible");
-      }
-      // Restore stale badge for participant structure set_value
+      ad.querySelectorAll(".act-btn").forEach(function(b) { b.className = "act-btn"; if (b.dataset.op === displayOp) b.className = "act-btn " + (ac[d.op] || ""); });
+      var ri = ad.querySelector(".reason-input"); if (ri && d.reason) { ri.value = d.reason; ri.classList.add("visible"); }
       if (d.op === "set_value" && d.target_kind === "participant_identity" && d.path && d.path.indexOf(".smiles") >= 0) {
-        var card = actionsDiv.closest(".participant-card");
+        var card = ad.closest(".participant-card");
         if (card) {
           card.classList.add("stale");
-          var pcardRight = card.querySelector(".pcard-right");
-          if (pcardRight && !card.querySelector(".stale-badge")) {
-            var staleBadge = document.createElement("span");
-            staleBadge.className = "stale-badge";
-            staleBadge.setAttribute("aria-label", "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1");
-            staleBadge.textContent = "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1";
-            pcardRight.appendChild(staleBadge);
-          }
-          var confirmBtn = actionsDiv.querySelector('[data-op="confirm"]');
-          if (confirmBtn) confirmBtn.disabled = true;
+          var pcr = card.querySelector(".pcard-right");
+          if (pcr && !card.querySelector(".stale-badge")) { var sb = document.createElement("span"); sb.className = "stale-badge"; sb.setAttribute("aria-label", "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1"); sb.textContent = "\u65e7\u56fe\uff0c\u4fee\u8ba2\u5c1a\u672a\u9a8c\u8bc1"; pcr.appendChild(sb); }
+          var cb = ad.querySelector('[data-op="confirm"]'); if (cb) cb.disabled = true;
         }
       }
     });
   }
 
-  // ===== Pending count =====
-  function updatePendingCount() {
-    var count = Object.keys(drafts).length;
-    document.getElementById("pending-count").textContent = count;
-  }
-
-  // ===== localStorage =====
-  function trySaveDrafts() {
-    try {
-      localStorage.setItem("chemex-review-drafts", JSON.stringify(drafts));
-    } catch(e) { /* quota or private mode */ }
-  }
-
-  function tryLoadDrafts() {
-    try {
-      var saved = localStorage.getItem("chemex-review-drafts");
-      if (saved) {
-        drafts = JSON.parse(saved);
-        updatePendingCount();
-      }
-    } catch(e) { /* corrupt data */ }
-  }
+  function updatePendingCount() { document.getElementById("pending-count").textContent = Object.keys(drafts).length; }
+  function trySaveDrafts() { try { localStorage.setItem("chemex-review-drafts", JSON.stringify(drafts)); } catch(e) {} }
+  function tryLoadDrafts() { try { var s = localStorage.getItem("chemex-review-drafts"); if (s) { drafts = JSON.parse(s); updatePendingCount(); } } catch(e) {} }
   tryLoadDrafts();
 
-  // ===== Export submission =====
+  /* === Export === */
   function exportSubmission() {
     var reviewer = document.getElementById("reviewer-input").value.trim();
-    if (!reviewer) {
-      alert(T.reviewerRequired);
-      document.getElementById("reviewer-input").focus();
-      return;
-    }
-
-    var operations = [];
+    if (!reviewer) { alert(T.reviewerRequired); document.getElementById("reviewer-input").focus(); return; }
+    var ops = [];
     Object.keys(drafts).forEach(function(key) {
-      var d = drafts[key];
-      var parts = d.target_id.split(":");
-      var rid = parts[0];
-      operations.push({
-        reaction_id: rid,
-        target_kind: d.target_kind,
-        target_id: d.target_id,
-        op: d.op,
-        reason: d.reason || null,
-        evidence_ids: [],
-        path: d.path || null,
-        old_value: d.old_value !== undefined ? d.old_value : null,
-        new_value: d.new_value !== undefined ? d.new_value : null
-      });
+      var d = drafts[key]; var parts = d.target_id.split(":");
+      ops.push({ reaction_id: parts[0], target_kind: d.target_kind, target_id: d.target_id, op: d.op, reason: d.reason || null, evidence_ids: [], path: d.path || null, old_value: d.old_value !== undefined ? d.old_value : null, new_value: d.new_value !== undefined ? d.new_value : null });
     });
-
-    // Build base_record_hashes from payload record_hash
-    var baseHashes = {};
-    (viewData.reactions || []).forEach(function(r) {
-      baseHashes[r.reaction_id] = r.record_hash || "";
-    });
-
-    var submissionId = "review-" + Date.now() + "-" + Math.random().toString(36).substr(2, 8);
-    var submission = {
-      schema_version: "1.0",
-      submission_id: submissionId,
-      base_record_hashes: baseHashes,
-      operations: operations,
-      reviewer: reviewer,
-      created_at: new Date().toISOString()
-    };
-
-    var blob = new Blob([JSON.stringify(submission, null, 2)], { type: "application/json" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download = "review-submission-" + submissionId + ".json";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    var bh = {}; (viewData.reactions || []).forEach(function(r) { bh[r.reaction_id] = r.record_hash || ""; });
+    var sid = "review-" + Date.now() + "-" + Math.random().toString(36).substr(2, 8);
+    var sub = { schema_version: "1.0", submission_id: sid, base_record_hashes: bh, operations: ops, reviewer: reviewer, created_at: new Date().toISOString() };
+    var blob = new Blob([JSON.stringify(sub, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob); var a = document.createElement("a");
+    a.href = url; a.download = "review-submission-" + sid + ".json"; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   }
-
   document.getElementById("btn-export").addEventListener("click", exportSubmission);
   document.getElementById("btn-export-header").addEventListener("click", exportSubmission);
 
-  // ===== Import draft =====
-  function importDraft() {
-    document.getElementById("import-file").click();
-  }
-
-  document.getElementById("btn-import").addEventListener("click", importDraft);
-
+  /* === Import === */
+  document.getElementById("btn-import").addEventListener("click", function() { document.getElementById("import-file").click(); });
   document.getElementById("import-file").addEventListener("change", function(e) {
-    var file = e.target.files[0];
-    if (!file) return;
+    var file = e.target.files[0]; if (!file) return;
     var reader = new FileReader();
     reader.onload = function(ev) {
       try {
         var imported = JSON.parse(ev.target.result);
-        if (imported.operations) {
-          imported.operations.forEach(function(op) {
-            var key = op.target_kind + ":" + op.target_id;
-            drafts[key] = op;
-          });
-          updatePendingCount();
-          trySaveDrafts();
-          restoreActionStates();
-          alert(T.importedOk.replace("{n}", imported.operations.length));
-        }
-      } catch(err) {
-        alert(T.invalidFile.replace("{err}", err.message));
-      }
+        if (imported.operations) { imported.operations.forEach(function(op) { drafts[op.target_kind + ":" + op.target_id] = op; }); updatePendingCount(); trySaveDrafts(); restoreActionStates(); alert(T.importedOk.replace("{n}", imported.operations.length)); }
+      } catch(err) { alert(T.invalidFile.replace("{err}", err.message)); }
     };
-    reader.readAsText(file);
-    e.target.value = ""; // Reset for re-import
+    reader.readAsText(file); e.target.value = "";
   });
 
-  // ===== Footer navigation =====
+  /* === Footer nav === */
   document.getElementById("btn-prev").addEventListener("click", function() {
-    var items = getVisibleItems();
-    var pos = -1;
-    items.forEach(function(el, i) {
-      if (el.dataset.idx === String(currentIdx)) pos = i;
-    });
+    var items = getVisibleItems(), pos = -1;
+    items.forEach(function(el, i) { if (el.dataset.idx === String(currentIdx)) pos = i; });
     if (pos > 0) selectReaction(items[pos - 1].dataset.idx);
   });
-
   document.getElementById("btn-next-unreviewed").addEventListener("click", function() {
-    var items = getVisibleItems();
-    // Find next unreviewed after current
-    var found = false;
-    for (var i = 0; i < items.length; i++) {
-      var idx = parseInt(items[i].dataset.idx, 10);
-      if (idx > currentIdx && items[i].dataset.human === "unreviewed") {
-        selectReaction(items[i].dataset.idx);
-        found = true;
-        break;
-      }
-    }
-    // Wrap around
-    if (!found) {
-      for (var j = 0; j < items.length; j++) {
-        if (items[j].dataset.human === "unreviewed") {
-          selectReaction(items[j].dataset.idx);
-          found = true;
-          break;
-        }
-      }
-    }
+    var items = getVisibleItems(), found = false;
+    for (var i = 0; i < items.length; i++) { if (parseInt(items[i].dataset.idx, 10) > currentIdx && items[i].dataset.human === "unreviewed") { selectReaction(items[i].dataset.idx); found = true; break; } }
+    if (!found) { for (var j = 0; j < items.length; j++) { if (items[j].dataset.human === "unreviewed") { selectReaction(items[j].dataset.idx); found = true; break; } } }
     if (!found) alert(T.noUnreviewed);
   });
-
   document.getElementById("btn-confirm-reaction").addEventListener("click", function() {
-    // Trigger confirm on the current reaction's reaction-level action
-    var actionsDiv = detailPane.querySelector(
-      '.reaction-detail[data-idx="' + currentIdx + '"] ' +
-      '.target-actions[data-target-kind="reaction"]'
-    );
-    if (actionsDiv) {
-      var confirmBtn = actionsDiv.querySelector('[data-op="confirm"]');
-      if (confirmBtn) confirmBtn.click();
-    }
+    var ad = detailPane.querySelector('.reaction-detail[data-idx="' + currentIdx + '"] .target-actions[data-target-kind="reaction"]');
+    if (ad) { var cb = ad.querySelector('[data-op="confirm"]'); if (cb) cb.click(); }
   });
 
-  // ===== Keyboard navigation =====
+  /* === Keyboard === */
   document.addEventListener("keydown", function(e) {
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-    var items = getVisibleItems();
-    var currentPos = -1;
-    items.forEach(function(el, i) {
-      if (el.dataset.idx === String(currentIdx)) currentPos = i;
-    });
-    if (e.key === "j" || e.key === "ArrowDown") {
-      e.preventDefault();
-      if (currentPos < items.length - 1) selectReaction(items[currentPos + 1].dataset.idx);
-    } else if (e.key === "k" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (currentPos > 0) selectReaction(items[currentPos - 1].dataset.idx);
-    } else if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
-      // Quick confirm current reaction
-      var confirmBtn = detailPane.querySelector(
-        '.reaction-detail[data-idx="' + currentIdx + '"] [data-op="confirm"]'
-      );
-      if (confirmBtn) confirmBtn.click();
-    }
+    var items = getVisibleItems(), pos = -1;
+    items.forEach(function(el, i) { if (el.dataset.idx === String(currentIdx)) pos = i; });
+    if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); if (pos < items.length - 1) selectReaction(items[pos + 1].dataset.idx); }
+    else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); if (pos > 0) selectReaction(items[pos - 1].dataset.idx); }
+    else if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) { var cb = detailPane.querySelector('.reaction-detail[data-idx="' + currentIdx + '"] [data-op="confirm"]'); if (cb) cb.click(); }
   });
 
-  // ===== Responsive drawer toggles =====
-  document.getElementById("btn-toggle-evidence").addEventListener("click", function() {
-    evPane.classList.toggle("drawer-open");
-  });
+  /* === Drawer toggles === */
+  document.getElementById("btn-toggle-evidence").addEventListener("click", function() { evPane.classList.toggle("drawer-open"); });
+  document.addEventListener("click", function(e) { if (evPane.classList.contains("drawer-open") && !evPane.contains(e.target) && e.target.id !== "btn-toggle-evidence") evPane.classList.remove("drawer-open"); });
+  var queueToggle = document.getElementById("btn-toggle-queue");
+  if (queueToggle) { queueToggle.addEventListener("click", function() { document.getElementById("queue-pane").classList.toggle("mobile-open"); }); }
 
-  // Close drawer on clicking outside (mobile)
-  document.addEventListener("click", function(e) {
-    if (evPane.classList.contains("drawer-open") &&
-        !evPane.contains(e.target) &&
-        e.target.id !== "btn-toggle-evidence") {
-      evPane.classList.remove("drawer-open");
-    }
-  });
-
-  // ===== Auto-select first unreviewed with blocking issues =====
-  (function autoSelect() {
+  /* === Auto-select first unreviewed === */
+  (function() {
     if (!viewData.reactions || viewData.reactions.length === 0) return;
-    // Find first unreviewed with machine issues
-    for (var i = 0; i < viewData.reactions.length; i++) {
-      var r = viewData.reactions[i];
-      if (r.human_status === "unreviewed" && r.machine_status === "needs_review") {
-        selectReaction(r.position, true);
-        return;
-      }
-    }
-    // Fall back to first unreviewed
-    for (var j = 0; j < viewData.reactions.length; j++) {
-      if (viewData.reactions[j].human_status === "unreviewed") {
-        selectReaction(viewData.reactions[j].position, true);
-        return;
-      }
-    }
-    // Fall back to first
+    for (var i = 0; i < viewData.reactions.length; i++) { var r = viewData.reactions[i]; if (r.human_status === "unreviewed" && r.machine_status === "needs_review") { selectReaction(r.position, true); return; } }
+    for (var j = 0; j < viewData.reactions.length; j++) { if (viewData.reactions[j].human_status === "unreviewed") { selectReaction(viewData.reactions[j].position, true); return; } }
     selectReaction(0, true);
   })();
 
-  // ===== Initial evidence highlight =====
   updateEvidenceHighlight();
-
 })();
 </script>
 </body>
