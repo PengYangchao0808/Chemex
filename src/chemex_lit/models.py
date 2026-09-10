@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Final, Literal, cast, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from chemex_lit.errors import ChemExError
 
@@ -299,3 +299,276 @@ class RunSummary(StrictModel):
     stages: dict[str, str] = Field(default_factory=dict)
     awaiting: list[str] = Field(default_factory=list)
     tasks: dict[str, TaskChannelStatus] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Review sidecar models — data foundation for the review workbench.
+#
+# These models are versioned independently of ReactionRecord (which stays v1).
+# "revised" is an *event* (op in ReviewOperation), not a HumanReviewStatus.
+# ---------------------------------------------------------------------------
+
+HumanReviewStatus = Literal[
+    "unreviewed", "in_review", "confirmed", "pending", "rejected"
+]
+"""Aggregated human review status for a reaction.
+
+Used by ReviewDecision aggregation logic downstream.  ``"revised"`` is an
+event (an operation kind in :class:`ReviewOperation`), **not** a status.
+"""
+
+
+class ReviewParticipant(StrictModel):
+    """One participant in the review context for a reaction.
+
+    ``participant_id`` is a stable string that does **not** depend on list
+    position.  The recommended scheme is ``{reaction_id}:{role}:{ordinal}``
+    where *ordinal* is a 1-based counter among participants sharing the same
+    role within the reaction (e.g. ``"rxn-001:reagent:1"``,
+    ``"rxn-001:reagent:2"``).
+    """
+
+    schema_version: Literal["1.0"] = "1.0"
+    participant_id: str
+    role: Literal[
+        "reactant",
+        "product",
+        "reagent",
+        "catalyst",
+        "ligand",
+        "solvent",
+        "additive",
+        "unknown",
+    ]
+    label: str | None = None
+    name: str | None = None
+    smiles: str | None = None
+    structure_state: Literal["resolved", "unresolved", "not_attempted"] = "not_attempted"
+    candidate_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    field_evidence_ids: list[str] = Field(default_factory=list)
+
+
+class ReviewConditionItem(StrictModel):
+    """One condition row in the review context for a reaction.
+
+    ``condition_id`` is a stable string independent of list position.
+    ``value`` preserves the verbatim text from the extraction output and is
+    never normalised away, even when ``numeric_value`` is also populated.
+    ``field_evidence_ids`` may be empty for legacy runs that only had
+    reaction-level evidence references.
+    """
+
+    schema_version: Literal["1.0"] = "1.0"
+    condition_id: str
+    kind: Literal[
+        "temperature",
+        "time",
+        "yield",
+        "reagent",
+        "solvent",
+        "amount",
+        "equivalents",
+        "concentration",
+        "catalyst_loading",
+        "atmosphere",
+        "pressure",
+        "addition_order",
+        "stage",
+        "light",
+        "electrochemistry",
+        "workup",
+        "ee",
+        "er",
+        "dr",
+        "other",
+    ]
+    value: str | None = None
+    numeric_value: float | None = None
+    unit: str | None = None
+    stage_index: int | None = None
+    extraction_state: Literal[
+        "extracted", "not_reported_in_output", "not_covered_by_pipeline"
+    ] = "extracted"
+    evidence_ids: list[str] = Field(default_factory=list)
+    field_evidence_ids: list[str] = Field(default_factory=list)
+
+
+class ReviewContext(StrictModel):
+    """Per-reaction review context built from a :class:`ReactionRecord`.
+
+    ``record_hash`` is the SHA-256 of the serialised ReactionRecord JSON that
+    this context was derived from.  ``context_schema_note`` carries optional
+    degradation messages (e.g. "legacy run without field evidence").
+    """
+
+    schema_version: Literal["1.0"] = "1.0"
+    reaction_id: str
+    record_hash: str
+    participants: list[ReviewParticipant] = Field(default_factory=list)
+    conditions: list[ReviewConditionItem] = Field(default_factory=list)
+    stage_count: int = Field(default=1, ge=0)
+    reaction_evidence_ids: list[str] = Field(default_factory=list)
+    context_schema_note: str | None = None
+
+
+class ReviewDecision(StrictModel):
+    """One human decision on one review target.
+
+    ``decision_id`` is globally unique.  ``record_hash`` captures the record
+    version the reviewer decided upon.
+
+    ``reason`` is **required** when ``conclusion`` is one of
+    ``"pending"``, ``"not_applicable"``, or ``"insufficient_evidence"``,
+    enforced by a model-level validator.
+    """
+
+    schema_version: Literal["1.0"] = "1.0"
+    decision_id: str
+    reaction_id: str
+    target_kind: Literal[
+        "reaction",
+        "condition",
+        "participant_identity",
+        "participant_structure",
+        "stereo",
+        "gold_alignment",
+        "completeness",
+    ]
+    target_id: str
+    conclusion: Literal[
+        "confirmed",
+        "revised",
+        "pending",
+        "not_applicable",
+        "rejected",
+        "insufficient_evidence",
+    ]
+    reason: str | None = None
+    reviewer: str
+    record_hash: str
+    created_at: str
+
+    @field_validator("reviewer")
+    @classmethod
+    def _non_empty_reviewer(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("reviewer must be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def _require_reason_for_preliminary_conclusions(self) -> ReviewDecision:
+        needs_reason = {"pending", "not_applicable", "insufficient_evidence"}
+        if self.conclusion in needs_reason and not self.reason:
+            raise ValueError(
+                f"reason is required when conclusion is {self.conclusion!r}"
+            )
+        return self
+
+
+class ReviewOperation(StrictModel):
+    """A single atomic operation inside a :class:`ReviewSubmission`.
+
+    ``"revised"`` is an operation event, **not** a status.
+    """
+
+    reaction_id: str
+    target_kind: Literal[
+        "reaction",
+        "condition",
+        "participant_identity",
+        "participant_structure",
+        "stereo",
+        "gold_alignment",
+        "completeness",
+    ]
+    target_id: str
+    op: Literal[
+        "set_value",
+        "confirm",
+        "mark_pending",
+        "mark_not_applicable",
+        "reject",
+        "add_participant",
+        "remove_participant",
+        "change_role",
+    ]
+    path: str | None = None
+    old_value: Any | None = None
+    new_value: Any | None = None
+    reason: str | None = None
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class ReviewSubmission(StrictModel):
+    """Offline review package for batch import or sync.
+
+    ``submission_id`` is a unique string used for deduplication.
+    ``base_record_hashes`` maps each reaction_id to the record hash the
+    reviewer saw when making decisions, enabling conflict detection.
+    """
+
+    schema_version: Literal["1.0"] = "1.0"
+    submission_id: str
+    base_record_hashes: dict[str, str] = Field(default_factory=dict)
+    operations: list[ReviewOperation] = Field(default_factory=list)
+    reviewer: str
+    created_at: str
+
+    @field_validator("reviewer")
+    @classmethod
+    def _non_empty_reviewer(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("reviewer must be non-empty")
+        return value
+
+
+class GoldSource(StrictModel):
+    """Provenance of a gold-standard benchmark file."""
+
+    file_name: str
+    file_hash: str
+    entry_count: int = Field(ge=0)
+    gold_schema_version: str
+    normalization_policy: str | None = None
+
+
+class GoldParticipantComparison(StrictModel):
+    """Comparison result for one participant against a gold-standard entry."""
+
+    participant_id: str
+    gold_participant_id: str | None = None
+    comparison: Literal[
+        "identical",
+        "connectivity_differs",
+        "stereo_only",
+        "stereo_specificity_differs",
+        "charge_salt_isotope_differs",
+        "missing_extracted",
+        "missing_gold",
+        "uncomparable",
+    ]
+    incomparable_reason: str | None = None
+
+
+class GoldComparison(StrictModel):
+    """Per-reaction gold-standard comparison diff.
+
+    ``alignment`` describes how the extracted reaction was matched to the gold
+    entry.  ``alignment_basis`` carries optional evidence for the mapping
+    decision.
+    """
+
+    schema_version: Literal["1.0"] = "1.0"
+    reaction_id: str
+    gold_reaction_id: str | None = None
+    alignment: Literal[
+        "explicit_id",
+        "mapped",
+        "ambiguous",
+        "unmatched_extracted",
+        "unmatched_gold",
+    ]
+    alignment_basis: str | None = None
+    participant_results: list[GoldParticipantComparison] = Field(default_factory=list)
+    gold_source: GoldSource
